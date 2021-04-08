@@ -20,7 +20,7 @@ static const String COMMAND_OPEN = "openKittyDoor";
 static const String COMMAND_CLOSE = "closeKittyDoor";
 static const String COMMAND_READ_LIGHT_LEVEL = "readLightLevel";
 
-const int MAX_LIGHT_LEVEL = 1500;
+const int MAX_LIGHT_LEVEL = 1023;
 const int MIN_LIGHT_LEVEL = 0;
 
 /* -------------------- Pin Values -------------------- */

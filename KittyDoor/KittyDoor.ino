@@ -133,14 +133,20 @@ void handleNewOptions(FirebaseJson *json)
       if (key == "closeLightLevel")
       {
         temp = value.toInt();
-        if (temp <= MAX_LIGHT_LEVEL && temp >= MIN_LIGHT_LEVEL)
-          options.closeLightLevel = temp;
+        if (temp < MIN_LIGHT_LEVEL)
+          temp = MIN_LIGHT_LEVEL;
+        else if (temp > MAX_LIGHT_LEVEL)
+          temp = MAX_LIGHT_LEVEL;
+        options.closeLightLevel = temp;
       }
       else if (key == "openLightLevel")
       {
         temp = value.toInt();
-        if (temp <= MAX_LIGHT_LEVEL && temp >= MIN_LIGHT_LEVEL)
-          options.openLightLevel = temp;
+        if (temp < MIN_LIGHT_LEVEL)
+          temp = MIN_LIGHT_LEVEL;
+        else if (temp > MAX_LIGHT_LEVEL)
+          temp = MAX_LIGHT_LEVEL;
+        options.openLightLevel = temp;
       }
       else if (key == "delayClosingVal")
       {
