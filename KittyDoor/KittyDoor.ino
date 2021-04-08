@@ -254,6 +254,7 @@ void writeOptionsToFirebase()
   json.add("delayClosing", options.delayClosing);
   json.add("delayOpeningVal", options.delayOpeningVal);
   json.add("delayClosingVal", options.delayClosingVal);
+  json.add("o_timestamp", millis());
   json.add("command", NONE);
 
   Firebase.set(firebaseSendData, PATH_OPTIONS, json);
@@ -341,6 +342,8 @@ void handleNewCommand()
   {
     writeDoorStatusToFirebase();
   }
+
+  writeOptionsToFirebase();
 }
 
 void doorHasOpened()
