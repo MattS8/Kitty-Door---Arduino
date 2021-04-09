@@ -227,7 +227,7 @@ void handleDataRecieved(StreamData data)
 void writeDoorStatusToFirebase()
 {
   FirebaseJson json;
-  json.add("l_timestamp", millis());
+  json.add("l_timestamp", String(millis()));
   json.add("type", status.door);
 
   Firebase.set(firebaseSendData, PATH_STATUS_DOOR, json);
@@ -237,7 +237,7 @@ void writeDoorStatusToFirebase()
 void writeHWOverrideToFirebase()
 {
   FirebaseJson json;
-  json.add("hw_timestamp", millis());
+  json.add("hw_timestamp", String(millis()));
   json.add("type", status.forceOpen == HIGH && status.forceClose == HIGH ? 0 : status.forceOpen == HIGH ? 1
                                                                                                         : 2);
 
@@ -247,7 +247,7 @@ void writeHWOverrideToFirebase()
 void writeDoorLightLevelToFirebase()
 {
   FirebaseJson json;
-  json.add("ll_timestamp", millis());
+  json.add("ll_timestamp", String(millis()));
   json.add("level", status.lightLevel);
 }
 
@@ -260,7 +260,7 @@ void writeOptionsToFirebase()
   json.add("delayClosing", options.delayClosing);
   json.add("delayOpeningVal", options.delayOpeningVal);
   json.add("delayClosingVal", options.delayClosingVal);
-  json.add("o_timestamp", millis());
+  json.add("o_timestamp", String(millis()));
   json.add("command", NONE);
 
   Firebase.set(firebaseSendData, PATH_OPTIONS, json);
