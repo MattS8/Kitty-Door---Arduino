@@ -6,7 +6,7 @@ String command = NONE;          // Used to process commands from Firebase
 String oldDoorStatus = "";      // Used to determine status changes
 
 KittyDoorOptions options;       // All values pertaining to door options (i.e. triggering light levels, etc)
-KittyDoorStatus status;         // All values pertaining to current door status (i.e. current light level, state, etc)
+KittyDoorValues values;         // All values pertaining to current door status (i.e. current light level, state, etc)
 
 // Firebase Variables
 FirebaseData firebaseData;      // FirebaseESP8266 data object
@@ -36,8 +36,8 @@ void setup()
   options.delayClosing = false;
   options.delayClosingVal = 0;
 
-  status.delayOpening = -1;
-  status.delayClosing = -1;
+  values.delayOpening = -1;
+  values.delayClosing = -1;
 
   // open_threshold = 800;                 // Open door if ambient light level > this
   // close_threshold = 350;                // Close door if ambient light level < this
@@ -154,7 +154,7 @@ void handleNewOptions(FirebaseJson *json)
         if (temp >= 0)
         {
           options.delayClosingVal = temp;
-          status.delayClosing = -1;
+          values.delayClosing = -1;
         }
       }
       else if (key == "delayOpeningVal")
@@ -163,7 +163,7 @@ void handleNewOptions(FirebaseJson *json)
         if (temp >= 0)
         {
           options.delayOpeningVal = temp;
-          status.delayOpening = -1;
+          values.delayOpening = -1;
         }
       }
       else if (key == "delayOpening")
@@ -173,7 +173,7 @@ void handleNewOptions(FirebaseJson *json)
         options.delayOpening = value == "true";
         if (!options.delayOpening)
         {
-          status.delayOpening = -1;
+          values.delayOpening = -1;
         }
       }
       else if (key == "delayClosing")
@@ -183,7 +183,7 @@ void handleNewOptions(FirebaseJson *json)
         options.delayClosing = value == "true";
         if (!options.delayClosing)
         {
-          status.delayClosing = -1;
+          values.delayClosing = -1;
         }
       }
       else if (key == "command")
@@ -228,7 +228,7 @@ void writeDoorStatusToFirebase()
 {
   FirebaseJson json;
   json.add("l_timestamp", String(millis()));
-  json.add("type", status.door);
+  json.add("type", doorStatus);
 
   Firebase.set(firebaseSendData, PATH_STATUS_DOOR, json);
 }
@@ -238,7 +238,7 @@ void writeHWOverrideToFirebase()
 {
   FirebaseJson json;
   json.add("hw_timestamp", String(millis()));
-  json.add("type", status.forceOpen == HIGH && status.forceClose == HIGH ? 0 : status.forceOpen == HIGH ? 1
+  json.add("type", values.forceOpen == HIGH && values.forceClose == HIGH ? 0 : values.forceOpen == HIGH ? 1
                                                                                                         : 2);
 
   Firebase.set(firebaseSendData, PATH_STATUS_HW_OVERRIDE, json);
@@ -248,7 +248,7 @@ void writeDoorLightLevelToFirebase()
 {
   FirebaseJson json;
   json.add("ll_timestamp", String(millis()));
-  json.add("level", status.lightLevel);
+  json.add("level", values.lightLevel);
 }
 
 void writeOptionsToFirebase()
@@ -271,10 +271,10 @@ void checkHardwareOverride()
   int newForceClose = digitalRead(PIN_FORCE_CLOSE);
   int newForceOpen = digitalRead(PIN_FORCE_OPEN);
 
-  if (newForceOpen != status.forceOpen || newForceClose != status.forceClose)
+  if (newForceOpen != values.forceOpen || newForceClose != values.forceClose)
   {
-    status.forceOpen = newForceOpen;
-    status.forceClose = newForceClose;
+    values.forceOpen = newForceOpen;
+    values.forceClose = newForceClose;
 
     writeHWOverrideToFirebase();
   }
@@ -284,20 +284,20 @@ void attempToOpenDoor()
 {
   if (options.delayOpening) // Haven't started delay yet, do so now!
   {
-    if (status.delayOpening < 0)
+    if (values.delayOpening < 0)
     {
-      status.delayOpening = millis() + options.delayOpeningVal;
+      values.delayOpening = millis() + options.delayOpeningVal;
     }
-    else if (millis() > status.delayOpening)
+    else if (millis() > values.delayOpening)
     {
-      if (status.upSense == HIGH)
+      if (values.upSense == HIGH)
       {
         openDoor();
       }
-      status.delayOpening = -1;
+      values.delayOpening = -1;
     }
   }
-  else if (status.upSense == HIGH)
+  else if (values.upSense == HIGH)
   {
     openDoor();
   }
@@ -307,34 +307,34 @@ void openDoor()
 {
   digitalWrite(PIN_OPEN_MOTOR, HIGH);
   digitalWrite(PIN_CLOSE_MOTOR, LOW);
-  status.door = STATUS_OPENING;
-  status.delayOpening = -1;
+  doorStatus = STATUS_OPENING;
+  values.delayOpening = -1;
 }
 
 void closeDoor()
 {
     digitalWrite(PIN_CLOSE_MOTOR, HIGH);
     digitalWrite(PIN_OPEN_MOTOR, LOW);
-    status.door = STATUS_CLOSING;
-    status.delayClosing = -1;
+    doorStatus = STATUS_CLOSING;
+    values.delayClosing = -1;
 }
 
 void handleNewCommand()
 {
   String newCommand = command;
   command = NONE;
-  oldDoorStatus = status.door;
+  oldDoorStatus = doorStatus;
 
   if (newCommand == COMMAND_OPEN)
   {
-    if (status.upSense == HIGH)
+    if (values.upSense == HIGH)
     {
       openDoor();
     }
   }
   else if (newCommand == COMMAND_CLOSE)
   {
-    if (status.downSense == HIGH)
+    if (values.downSense == HIGH)
     {
       closeDoor();
     }
@@ -344,7 +344,7 @@ void handleNewCommand()
     writeDoorLightLevelToFirebase();
   }
 
-  if (oldDoorStatus != status.door)
+  if (oldDoorStatus != doorStatus)
   {
     writeDoorStatusToFirebase();
   }
@@ -356,24 +356,24 @@ void doorHasOpened()
 {
   digitalWrite(PIN_OPEN_MOTOR, LOW);
   digitalWrite(PIN_CLOSE_MOTOR, LOW);
-  status.door = STATUS_OPEN;
+  doorStatus = STATUS_OPEN;
 }
 
 void doorHasClosed()
 {
   digitalWrite(PIN_OPEN_MOTOR, LOW);
   digitalWrite(PIN_CLOSE_MOTOR, LOW);
-  status.door = STATUS_CLOSED;
+  doorStatus = STATUS_CLOSED;
 }
 
 void loop()
 {
   // Read new values
   checkHardwareOverride();
-  status.lightLevel = analogRead(PIN_LIGHT_SENSOR);
-  status.upSense = analogRead(PIN_UP_SENSE);
-  status.downSense = analogRead(PIN_DOWN_SENSE);
-  oldDoorStatus = status.door;
+  values.lightLevel = analogRead(PIN_LIGHT_SENSOR);
+  values.upSense = analogRead(PIN_UP_SENSE);
+  values.downSense = analogRead(PIN_DOWN_SENSE);
+  oldDoorStatus = doorStatus;
 
   // Handle any incoming commands/option changes from firebase
   if (command != NONE)
@@ -383,9 +383,9 @@ void loop()
 
   // Check if hardware force open is enabled
   // If enabled and door is not up, open door
-  if (status.forceOpen == LOW)
+  if (values.forceOpen == LOW)
   {
-    if (status.upSense == HIGH)
+    if (values.upSense == HIGH)
     {
       openDoor();
     }
@@ -396,9 +396,9 @@ void loop()
   }
   // Else, check if hardware force close is enabled
   // If enabled and door is not down, close door
-  else if (status.forceClose == LOW)
+  else if (values.forceClose == LOW)
   {
-    if (status.downSense == HIGH)
+    if (values.downSense == HIGH)
     {
       closeDoor();
     }
@@ -409,40 +409,40 @@ void loop()
   }
   // Else, check if a delay to open is in effect
   // If in effect, check to see if it is time to open the door
-  else if (status.delayOpening > 0)
+  else if (values.delayOpening > 0)
   {
-    if (millis() > status.delayOpening)
+    if (millis() > values.delayOpening)
     {
-      if (status.lightLevel >= options.openLightLevel)
+      if (values.lightLevel >= options.openLightLevel)
       {
         openDoor();
       }
       else 
       { // It got dark before delay time was over!
-        status.delayOpening = -1;
+        values.delayOpening = -1;
       }
     }
   }
   // Else, check if a delay to close is in effect
   // If in effect, check to see if it is time to close the door
-  else if (status.delayClosing > 0)
+  else if (values.delayClosing > 0)
   {
-    if (millis() > status.delayClosing)
+    if (millis() > values.delayClosing)
     {
-      if (status.lightLevel <= options.closeLightLevel)
+      if (values.lightLevel <= options.closeLightLevel)
       {
         closeDoor();
       }
       else 
       { // It got light before delay time was over!
-        status.delayOpening = -1;
+        values.delayOpening = -1;
       }
     }
   } 
   // Else, check if light level is high enough to open
-  else if (status.lightLevel >= options.openLightLevel)
+  else if (values.lightLevel >= options.openLightLevel)
   {
-    if (status.upSense == HIGH)
+    if (values.upSense == HIGH)
     {
       openDoor();
     }
@@ -452,9 +452,9 @@ void loop()
     }
   }
   // Else, check if light level is low enough to close
-  else if (status.lightLevel <= options.closeLightLevel)
+  else if (values.lightLevel <= options.closeLightLevel)
   {
-    if (status.downSense == HIGH)
+    if (values.downSense == HIGH)
     {
       closeDoor();
     }
@@ -470,17 +470,21 @@ void loop()
     digitalWrite(PIN_OPEN_MOTOR, LOW);
   }
 
-  if (oldDoorStatus != status.door)
+  if (oldDoorStatus != doorStatus)
   {
+    Serial.print("Door status changed from ");
+    Serial.print(oldDoorStatus);
+    Serial.print(" to ");
+    Serial.println(doorStatus);
     writeDoorStatusToFirebase();
   }
 
-  Serial.print("Sensor Values:");
-  Serial.print("  -> Light Level: ");Serial.print(status.lightLevel);
-  Serial.print("  -> Up Sense: ");Serial.print(status.upSense);
-  Serial.print("  -> Down Sense: ");Serial.print(status.downSense);
-  Serial.print("  -> Force Open: ");Serial.print(status.forceOpen);
-  Serial.print("  -> Force Close: ");Serial.println(status.forceClose);
+  // Serial.print("Sensor Values:");
+  // Serial.print("  -> Light Level: ");Serial.print(values.lightLevel);
+  // Serial.print("  -> Up Sense: ");Serial.print(values.upSense);
+  // Serial.print("  -> Down Sense: ");Serial.print(values.downSense);
+  // Serial.print("  -> Force Open: ");Serial.print(values.forceOpen);
+  // Serial.print("  -> Force Close: ");Serial.println(values.forceClose);
 
   //   if (force_open_value == LOW && up_sense_value == HIGH){
   //     digitalWrite (open_door,HIGH);  //Open the door

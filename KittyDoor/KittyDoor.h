@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
 #include "FirebaseESP8266.h"
+#include <ESP8266WiFi.h>
 // #include <FirebaseJson.h>
 #include "WifiCreds.h"
 
@@ -43,8 +43,9 @@ static const String PATH_RESTART_COUNT = "debug/kitty_door/restart_count";
 
 // CUSTOME FIREBASE DEFINES
 #define FIREBASE_PIN_A0 88
-typedef struct KittyDoorStatus {
-    String door;
+
+String doorStatus = NONE;
+typedef struct KittyDoorValues {
     int lightLevel;
     int hwOverride;
     int upSense;
@@ -53,7 +54,7 @@ typedef struct KittyDoorStatus {
     int forceClose;
     long delayClosing;
     long delayOpening;
-} KittyDoorStatus;
+} KittyDoorValues;
 
 typedef struct KittyDoorOptions {
     int openLightLevel;
