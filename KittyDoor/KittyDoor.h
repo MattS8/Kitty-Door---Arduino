@@ -63,5 +63,6 @@ typedef struct KittyDoorOptions {
     int delayClosingVal;
     bool delayOpening;
     bool delayClosing;
+    bool overrideAuto;
 } KittyDoorOptions;
 
