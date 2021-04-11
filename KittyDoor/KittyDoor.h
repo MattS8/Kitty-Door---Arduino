@@ -37,7 +37,7 @@ const int PIN_CLOSE_MOTOR = 4;
 /* -------------------- Firebase Paths -------------------- */
 static const String PATH_STATUS_DOOR = "status/kitty_door/";
 static const String PATH_STATUS_HW_OVERRIDE = "status/kitty_door_hw_override";
-static const String PATH_STATUS_LIGHT_LEVEL = "statis/kitty_door_light_level";
+static const String PATH_STATUS_LIGHT_LEVEL = "status/kitty_door_light_level";
 static const String PATH_OPTIONS = "systems/kitty_door";
 static const String PATH_RESTART_COUNT = "debug/kitty_door/restart_count";
 

@@ -220,6 +220,7 @@ void writeDoorLightLevelToFirebase()
   FirebaseJson json;
   json.add("ll_timestamp", String(millis()));
   json.add("level", values.lightLevel);
+  Firebase.set(firebaseSendData, PATH_STATUS_LIGHT_LEVEL, json);
 }
 
 void writeOptionsToFirebase()
@@ -232,6 +233,7 @@ void writeOptionsToFirebase()
   json.add("delayOpeningVal", options.delayOpeningVal);
   json.add("delayClosingVal", options.delayClosingVal);
   json.add("o_timestamp", String(millis()));
+  json.add("autoOverride", options.overrideAuto);
   json.add("command", NONE);
 
   Firebase.set(firebaseSendData, PATH_OPTIONS, json);
@@ -246,6 +248,8 @@ void checkHardwareOverride()
   {
     values.forceOpen = newForceOpen;
     values.forceClose = newForceClose;
+    desiredDoorStatus = NONE;
+    options.overrideAuto = false;
 
     writeHWOverrideToFirebase();
   }
