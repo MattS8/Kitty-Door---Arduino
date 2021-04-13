@@ -25,14 +25,14 @@ const int MIN_LIGHT_LEVEL = 0;
 
 /* -------------------- Pin Values -------------------- */
 const int PIN_LIGHT_SENSOR = A0;
-const int PIN_UP_SENSE = 2;
+const int PIN_UP_SENSE = 4;
 const int PIN_DOWN_SENSE = 12;
 const int PIN_FORCE_OPEN = 14;
 const int PIN_FORCE_CLOSE = 13;
 
 // ??
 const int PIN_OPEN_MOTOR = 5;
-const int PIN_CLOSE_MOTOR = 4;
+const int PIN_CLOSE_MOTOR = 2;
 
 /* -------------------- Firebase Paths -------------------- */
 static const String PATH_STATUS_DOOR = "status/kitty_door/";
