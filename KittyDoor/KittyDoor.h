@@ -40,6 +40,7 @@ static const String PATH_STATUS_HW_OVERRIDE = "status/kitty_door_hw_override";
 static const String PATH_STATUS_LIGHT_LEVEL = "status/kitty_door_light_level";
 static const String PATH_OPTIONS = "systems/kitty_door";
 static const String PATH_RESTART_COUNT = "debug/kitty_door/restart_count";
+static const String PATH_DEBUG_MESSAGE = "debug/kitty_door/messages/";
 
 // CUSTOME FIREBASE DEFINES
 #define FIREBASE_PIN_A0 88

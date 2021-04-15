@@ -13,6 +13,8 @@ KittyDoorValues values;         // All values pertaining to current door status 
 FirebaseData firebaseData;      // FirebaseESP8266 data object
 FirebaseData firebaseSendData;  // FirebaseESP8266 data object used to send updates
 
+unsigned int firebaseLogCounter;    // Used to log unique messages to firebase
+
 void setup()
 {
   // put your setup code here, to run once:
@@ -30,8 +32,10 @@ void setup()
   digitalWrite(PIN_OPEN_MOTOR, LOW);  // Don't close door
   digitalWrite(PIN_CLOSE_MOTOR, LOW); // Don't open door
 
-  options.openLightLevel = 800;
-  options.closeLightLevel = 350;
+  firebaseLogCounter = 0;
+
+  options.openLightLevel = 190;
+  options.closeLightLevel = 40;
   options.delayOpening = false;
   options.delayOpeningVal = 0;
   options.delayClosing = false;
@@ -60,6 +64,33 @@ void setup()
   Firebase.setMaxRetry(firebaseData, 4);
   firebaseData.setResponseSize(1024);
 
+  // Get log counter
+  Serial.println("Fetching log counter...");
+  if (Firebase.get(firebaseData, "debug/kitty_door/msg_count"))
+  {
+    firebaseLogCounter = (unsigned int) firebaseDat.intData();
+    Serial.print("Log counter set to: ");
+    Serial.println(firebaseLogCounter);
+  }
+  else 
+  {
+    Serial.println("FAILED");
+    Serial.println("REASON: " + firebaseData.errorReason());
+  }
+
+  // Get Initial Options From Firebase
+  Serial.println("Fetching initial options...");
+  if (Firebase.get(firebaseData, PATH_OPTIONS))
+  {
+    handleNewOptions(firebaseData.jsonData());
+    sendFirebaseMessage("Initial Firebase Options fetched... current counter: " + firebaseLogCounter);
+  }
+  else {
+    Serial.println("FAILED");
+    Serial.println("REASON: " + firebaseData.errorReason());
+  }
+
+
   // Begin Streaming
   Serial.print("Streaming to: ");
   Serial.println(PATH_OPTIONS);
@@ -84,6 +115,15 @@ void handleTimeout(bool timeout)
     Serial.println("Stream timeout, resume streaming...");
     Serial.println();
   }
+}
+
+void sendFirebaseMessage(String message)
+{
+  FirebaseJson json;
+  json.add("count", String(++firebaseLogCounter));
+  json.add("message", message);
+
+  Firebase.set(firebaseSendData, PATH_DEBUG_MESSAGE + firebaseLogCounter, json);
 }
 
 void handleNewOptions(FirebaseJson *json)
@@ -112,6 +152,7 @@ void handleNewOptions(FirebaseJson *json)
           temp = MIN_LIGHT_LEVEL;
         else if (temp > MAX_LIGHT_LEVEL)
           temp = MAX_LIGHT_LEVEL;
+        sendFirebaseMessage("Option Change - openLightLevel set to: " + value.toInt());
         options.openLightLevel = temp;
       }
       else if (key == "delayClosingVal")
