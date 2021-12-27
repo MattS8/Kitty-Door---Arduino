@@ -1,5 +1,5 @@
 #include "KittyDoor.h"
-
+#define REMOTE_DEBUG
 
 // int restartCount = 0;           // Used as a UID for controller debug statements
 String command = NONE;            // Used to process commands from Firebase
@@ -68,7 +68,7 @@ void setup()
   Serial.println("Fetching log counter...");
   if (Firebase.get(firebaseData, "debug/kitty_door/msg_count"))
   {
-    firebaseLogCounter = (unsigned int) firebaseDat.intData();
+    firebaseLogCounter = (unsigned int) firebaseData.intData();
     Serial.print("Log counter set to: ");
     Serial.println(firebaseLogCounter);
   }
@@ -76,6 +76,7 @@ void setup()
   {
     Serial.println("FAILED");
     Serial.println("REASON: " + firebaseData.errorReason());
+    
   }
 
   // Get Initial Options From Firebase
@@ -102,6 +103,7 @@ void setup()
     Serial.println("REASON: " + firebaseData.errorReason());
     Serial.println("------------------------------------");
     Serial.println();
+    
   }
 
   Firebase.setStreamCallback(firebaseData, handleDataRecieved, handleTimeout);
@@ -121,6 +123,7 @@ void sendFirebaseMessage(String message)
 {
   FirebaseJson json;
   json.add("count", String(++firebaseLogCounter));
+  json.add("device_time", "" + millis() + " milliseconds");
   json.add("message", message);
 
   Firebase.set(firebaseSendData, PATH_DEBUG_MESSAGE + firebaseLogCounter, json);
@@ -243,6 +246,11 @@ void writeDoorStatusToFirebase()
   json.add("type", doorStatus);
 
   Firebase.set(firebaseSendData, PATH_STATUS_DOOR, json);
+
+  #ifdef REMOTE_DEBUG
+  delay(500);
+  sendFirebaseMessage("Door Status: " + doorStatus + ", Light Level: " + values.lightLevel);
+  #endif
 }
 
 // 0 = no force open/close; 1 = force open; 2 = force close
