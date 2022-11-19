@@ -382,6 +382,7 @@ void doorHasOpened()
   digitalWrite(PIN_OPEN_MOTOR, LOW);
   digitalWrite(PIN_CLOSE_MOTOR, LOW);
   doorStatus = STATUS_OPEN;
+  desiredDoorStatus = NONE;
 }
 
 void doorHasClosed()
@@ -389,6 +390,7 @@ void doorHasClosed()
   digitalWrite(PIN_OPEN_MOTOR, LOW);
   digitalWrite(PIN_CLOSE_MOTOR, LOW);
   doorStatus = STATUS_CLOSED;
+  desiredDoorStatus = NONE;
 }
 
 void loop()
