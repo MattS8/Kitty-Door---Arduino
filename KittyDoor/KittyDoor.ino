@@ -471,10 +471,8 @@ void loop()
       }
     }
     else 
-    { // Bad state, should never reach this
-      Serial.print("===== ERROR: remote override enabled, but desired status was in an unexpected state (");
-      Serial.print(desiredDoorStatus);
-      Serial.println(") =====");
+    { // Door has already been opened/closed based off of the last recieved override. Nothing needs to be done until
+      //  the next override command or is set back to auto mode 
       digitalWrite(PIN_CLOSE_MOTOR, LOW);
       digitalWrite(PIN_OPEN_MOTOR, LOW);
     }
