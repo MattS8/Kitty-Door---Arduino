@@ -360,7 +360,11 @@ void checkHardwareOverride()
   {
     values.forceOpen = newForceOpen;
     values.forceClose = newForceClose;
-    desiredDoorStatus = NONE;
+    desiredDoorStatus = values.forceOpen == LOW 
+      ? STATUS_OPEN 
+      : values.forceClose == LOW 
+        ? STATUS_CLOSED
+        : NONE;
     options.overrideAuto = false;
 
     writeHWOverrideToFirebase();
@@ -425,7 +429,7 @@ void doorHasClosed()
   desiredDoorStatus = NONE;
 }
 
-/* -------- Big Ugle Long Loop Function -------- */
+/* -------- Big Ugly Long Loop Function -------- */
 void loop()
 {
   // Read new values
@@ -446,7 +450,7 @@ void loop()
   if (values.forceOpen == LOW)
   {
     Serial.println("Force Open Enabled:");
-    if (values.upSense == HIGH)
+    if (desiredDoorStatus == STATUS_OPEN && values.upSense == HIGH)
     {
       Serial.println("   Opening door...");
       openDoor();
@@ -462,7 +466,7 @@ void loop()
   else if (values.forceClose == LOW)
   {
     Serial.println("Force Close Enabled:");
-    if (values.downSense == HIGH)
+    if (desiredDoorStatus == STATUS_CLOSED && values.downSense == HIGH)
     {
       Serial.println("   Closing door...");
       closeDoor();
@@ -522,7 +526,7 @@ void loop()
       if (values.lightLevel >= options.openLightLevel)
       {
         Serial.println("      Light level premits...");
-        if (values.upSense == HIGH)
+        if (desiredDoorStatus == STATUS_OPEN && values.upSense == HIGH)
         {
           Serial.println("      Opening Door...");
           openDoor();
@@ -558,7 +562,7 @@ void loop()
       if (values.lightLevel <= options.closeLightLevel)
       {
         Serial.println("      Light level premits...");
-        if (values.downSense == HIGH)
+        if (desiredDoorStatus == STATUS_CLOSED && values.downSense == HIGH)
         {
           Serial.println("      Closing door...");
           closeDoor();  
@@ -587,7 +591,7 @@ void loop()
   {
     Serial.println("   Automatic Mode Enabled!");
     Serial.println("      It's bright enough to open up!");
-    if (values.upSense == HIGH)
+    if (desiredDoorStatus == STATUS_OPEN && values.upSense == HIGH)
     {
       if (options.delayOpening)
       {
@@ -615,7 +619,7 @@ void loop()
   {
       Serial.println("   Automatic Mode Enabled!");
       Serial.println("      It's dark enough to close!");
-    if (values.downSense == HIGH)
+    if (desiredDoorStatus == STATUS_CLOSED && values.downSense == HIGH)
     {
       if (options.delayClosing)
       {
@@ -645,6 +649,13 @@ void loop()
     Serial.println(doorStatus);
     digitalWrite(PIN_CLOSE_MOTOR, LOW);
     digitalWrite(PIN_OPEN_MOTOR, LOW);
+
+    if (desiredDoorStatus != NONE)
+    {
+      Serial.print("WARNING: desiredDoorStatus was not none, however door is currently resting... (");
+      Serial.print(desiredDoorStatus);
+      Serial.println(")");
+    }
   }
 
   if (oldDoorStatus != doorStatus)
