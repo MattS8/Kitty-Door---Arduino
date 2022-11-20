@@ -17,20 +17,20 @@ unsigned int firebaseLogCounter;    // Used to log unique messages to firebase
 
 void setup()
 {
-  // put your setup code here, to run once:
   Serial.begin(9600);
+
   //analogReference(INTERNAL);              // 1.1V ref. 1.08mV resolution on analog inputs
-  pinMode(PIN_LIGHT_SENSOR, INPUT);       // Ambient light from photo sensor
-  pinMode(PIN_UP_SENSE, INPUT_PULLUP);    // Low when door is fully open
-  pinMode(PIN_DOWN_SENSE, INPUT_PULLUP);  // Low when door is fully closed
-  pinMode(PIN_FORCE_OPEN, INPUT_PULLUP);  // If low, force door to open
-  pinMode(PIN_FORCE_CLOSE, INPUT_PULLUP); // If low, force door to close
+  pinMode(PIN_LIGHT_SENSOR, INPUT);         // Ambient light from photo sensor
+  pinMode(PIN_UP_SENSE, INPUT_PULLUP);      // Low when door is fully open
+  pinMode(PIN_DOWN_SENSE, INPUT_PULLUP);    // Low when door is fully closed
+  pinMode(PIN_FORCE_OPEN, INPUT_PULLUP);    // If low, force door to open
+  pinMode(PIN_FORCE_CLOSE, INPUT_PULLUP);   // If low, force door to close
   //
-  pinMode(PIN_OPEN_MOTOR, OUTPUT);  // If HIGH, door will open
-  pinMode(PIN_CLOSE_MOTOR, OUTPUT); // If HIGH, door will close
+  pinMode(PIN_OPEN_MOTOR, OUTPUT);          // If HIGH, door will open
+  pinMode(PIN_CLOSE_MOTOR, OUTPUT);         // If HIGH, door will close
   //
-  digitalWrite(PIN_OPEN_MOTOR, LOW);  // Don't close door
-  digitalWrite(PIN_CLOSE_MOTOR, LOW); // Don't open door
+  digitalWrite(PIN_OPEN_MOTOR, LOW);        // Don't close door
+  digitalWrite(PIN_CLOSE_MOTOR, LOW);       // Don't open door
 
   firebaseLogCounter = 0;
 
@@ -125,6 +125,8 @@ void sendFirebaseMessage(String message)
 
   Firebase.set(firebaseSendData, PATH_DEBUG_MESSAGE + firebaseLogCounter, json);
 }
+
+/* -------- Firebase Handlers -------- */
 
 void handleNewOptions(FirebaseJson *json)
 {
@@ -236,82 +238,6 @@ void handleDataRecieved(StreamData data)
   }
 }
 
-void writeDoorStatusToFirebase()
-{
-  FirebaseJson json;
-  json.add("l_timestamp", String(millis()));
-  json.add("type", doorStatus);
-
-  Firebase.set(firebaseSendData, PATH_STATUS_DOOR, json);
-}
-
-// 0 = no force open/close; 1 = force open; 2 = force close
-void writeHWOverrideToFirebase()
-{
-  FirebaseJson json;
-  json.add("hw_timestamp", String(millis()));
-  json.add("type", values.forceOpen == HIGH && values.forceClose == HIGH ? 0 : values.forceOpen == HIGH ? 1
-                                                                                                        : 2);
-
-  Firebase.set(firebaseSendData, PATH_STATUS_HW_OVERRIDE, json);
-}
-
-void writeDoorLightLevelToFirebase()
-{
-  FirebaseJson json;
-  json.add("ll_timestamp", String(millis()));
-  json.add("level", values.lightLevel);
-  Firebase.set(firebaseSendData, PATH_STATUS_LIGHT_LEVEL, json);
-}
-
-void writeOptionsToFirebase()
-{
-  FirebaseJson json;
-  json.add("closeLightLevel", options.closeLightLevel);
-  json.add("openLightLevel", options.openLightLevel);
-  json.add("delayOpening", options.delayOpening);
-  json.add("delayClosing", options.delayClosing);
-  json.add("delayOpeningVal", options.delayOpeningVal);
-  json.add("delayClosingVal", options.delayClosingVal);
-  json.add("o_timestamp", String(millis()));
-  json.add("autoOverride", options.overrideAuto);
-  json.add("command", NONE);
-
-  Firebase.set(firebaseSendData, PATH_OPTIONS, json);
-}
-
-void checkHardwareOverride()
-{
-  int newForceClose = digitalRead(PIN_FORCE_CLOSE);
-  int newForceOpen = digitalRead(PIN_FORCE_OPEN);
-
-  if (newForceOpen != values.forceOpen || newForceClose != values.forceClose)
-  {
-    values.forceOpen = newForceOpen;
-    values.forceClose = newForceClose;
-    desiredDoorStatus = NONE;
-    options.overrideAuto = false;
-
-    writeHWOverrideToFirebase();
-  }
-}
-
-void openDoor()
-{
-  digitalWrite(PIN_OPEN_MOTOR, HIGH);
-  digitalWrite(PIN_CLOSE_MOTOR, LOW);
-  doorStatus = STATUS_OPENING;
-  values.delayOpening = -1;
-}
-
-void closeDoor()
-{
-    digitalWrite(PIN_CLOSE_MOTOR, HIGH);
-    digitalWrite(PIN_OPEN_MOTOR, LOW);
-    doorStatus = STATUS_CLOSING;
-    values.delayClosing = -1;
-}
-
 void handleNewCommand()
 {
   String newCommand = command;
@@ -377,6 +303,112 @@ void handleNewCommand()
   writeOptionsToFirebase();
 }
 
+/* -------- Firebase Write Operations -------- */
+
+void writeDoorStatusToFirebase()
+{
+  FirebaseJson json;
+  json.add("l_timestamp", String(millis()));
+  json.add("type", doorStatus);
+
+  Firebase.set(firebaseSendData, PATH_STATUS_DOOR, json);
+}
+
+// 0 = no force open/close; 1 = force open; 2 = force close
+void writeHWOverrideToFirebase()
+{
+  FirebaseJson json;
+  json.add("hw_timestamp", String(millis()));
+  json.add("type", values.forceOpen == HIGH && values.forceClose == HIGH ? 0 : values.forceOpen == HIGH ? 1
+                                                                                                        : 2);
+
+  Firebase.set(firebaseSendData, PATH_STATUS_HW_OVERRIDE, json);
+}
+
+void writeDoorLightLevelToFirebase()
+{
+  FirebaseJson json;
+  json.add("ll_timestamp", String(millis()));
+  json.add("level", values.lightLevel);
+  Firebase.set(firebaseSendData, PATH_STATUS_LIGHT_LEVEL, json);
+}
+
+void writeOptionsToFirebase()
+{
+  FirebaseJson json;
+  json.add("closeLightLevel", options.closeLightLevel);
+  json.add("openLightLevel", options.openLightLevel);
+  json.add("delayOpening", options.delayOpening);
+  json.add("delayClosing", options.delayClosing);
+  json.add("delayOpeningVal", options.delayOpeningVal);
+  json.add("delayClosingVal", options.delayClosingVal);
+  json.add("o_timestamp", String(millis()));
+  json.add("autoOverride", options.overrideAuto);
+  json.add("command", NONE);
+
+  Firebase.set(firebaseSendData, PATH_OPTIONS, json);
+}
+
+/* -------- Sensor Checks -------- */
+
+void checkHardwareOverride()
+{
+  int newForceClose = digitalRead(PIN_FORCE_CLOSE);
+  int newForceOpen = digitalRead(PIN_FORCE_OPEN);
+
+  if (newForceOpen != values.forceOpen || newForceClose != values.forceClose)
+  {
+    values.forceOpen = newForceOpen;
+    values.forceClose = newForceClose;
+    desiredDoorStatus = NONE;
+    options.overrideAuto = false;
+
+    writeHWOverrideToFirebase();
+  }
+}
+
+void checkLightLevel()
+{
+  // Check if light change causes a new desired state
+  int oldLightLevel = values.lightLevel;
+  values.lightLevel = analogRead(PIN_LIGHT_SENSOR);
+
+  // If in an "override" mode, don't mess with the desiredDoorStatus based on light!
+  if (values.forceOpen == LOW || values.forceClose == LOW || options.overrideAuto)
+    return;
+
+  // Changing from "too light to close" to "dark enough to close"
+  if (oldLightlevel > options.closeLightLevel && values.lightLevel <= options.closeLightLevel)
+  {
+    desiredDoorStatus = STATUS_CLOSED;
+  }
+  // Changing from "too dark to open" to "light enough to open"
+  else if (oldLightLevel < options.openLightLevel && values.lightLevel >= options.openLightLevel)
+  {
+    desiredDoorStatus = STATUS_OPEN;
+  }
+}
+
+/* -------- Door Motor Operations -------- */
+
+void openDoor()
+{
+  digitalWrite(PIN_OPEN_MOTOR, HIGH);
+  digitalWrite(PIN_CLOSE_MOTOR, LOW);
+  doorStatus = STATUS_OPENING;
+  values.delayOpening = -1;
+}
+
+void closeDoor()
+{
+    digitalWrite(PIN_CLOSE_MOTOR, HIGH);
+    digitalWrite(PIN_OPEN_MOTOR, LOW);
+    doorStatus = STATUS_CLOSING;
+    values.delayClosing = -1;
+}
+
+/* -------- Door Motor Events -------- */
+
 void doorHasOpened()
 {
   digitalWrite(PIN_OPEN_MOTOR, LOW);
@@ -393,11 +425,12 @@ void doorHasClosed()
   desiredDoorStatus = NONE;
 }
 
+/* -------- Big Ugle Long Loop Function -------- */
 void loop()
 {
   // Read new values
   checkHardwareOverride();
-  values.lightLevel = analogRead(PIN_LIGHT_SENSOR);
+  checkLightLevel();
   values.upSense = digitalRead(PIN_UP_SENSE);
   values.downSense = digitalRead(PIN_DOWN_SENSE);
   oldDoorStatus = doorStatus;
@@ -669,7 +702,7 @@ void loop()
   // Serial.print("    force_close_value: ");Serial.println(force_close_value);
 }
 
-// DEBUG
+/* -------- Stream Data Debug -------- */
 void printResult(StreamData &data)
 {
 
