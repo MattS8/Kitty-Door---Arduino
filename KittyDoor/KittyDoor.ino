@@ -52,6 +52,8 @@ void setup()
 
   values.delayOpening = -1;
   values.delayClosing = -1;
+  values.forceClose = -1;
+  values.forceOpen = -1;
 
   // Connect to WiFi
   WiFi.begin(WIFI_AP_NAME, WIFI_AP_PASS);
@@ -385,6 +387,8 @@ void checkHardwareOverride()
 
   if (newForceOpen != values.forceOpen || newForceClose != values.forceClose)
   {
+    Serial.printf("\n--------\nNew Hardware Override!\n--------\tForce Close: %d -> %d\n\tForce Open: %d -> %d\n", 
+      values.forceClose, newForceClose, values.forceOpen, newForceOpen);
     values.forceOpen = newForceOpen;
     values.forceClose = newForceClose;
     desiredDoorStatus = values.forceOpen == LOW 
@@ -393,6 +397,7 @@ void checkHardwareOverride()
         ? STATUS_CLOSED
         : NONE;
     options.overrideAuto = false;
+    Serial.printf("New desired door status: %s\n\n", desiredDoorStatus);
 
     writeHWOverrideToFirebase();
   }
@@ -477,10 +482,17 @@ void loop()
   if (values.forceOpen == LOW)
   {
     Serial.println("Force Open Enabled:");
-    if (desiredDoorStatus == STATUS_OPEN && values.upSense == HIGH)
+    if (values.upSense == HIGH)
     {
-      Serial.println("   Opening door...");
-      openDoor();
+      if (desiredDoorStatus == STATUS_OPEN)
+      {
+        Serial.println("   Opening door...");
+        openDoor();
+      }
+      else
+      {
+        Serial.printf("   Warning: Door is not completely open however the desired door state is currently: %s\n", desiredDoorStatus);
+      }
     }
     else
     { // Door is already open
@@ -493,10 +505,17 @@ void loop()
   else if (values.forceClose == LOW)
   {
     Serial.println("Force Close Enabled:");
-    if (desiredDoorStatus == STATUS_CLOSED && values.downSense == HIGH)
+    if (values.downSense == HIGH)
     {
-      Serial.println("   Closing door...");
-      closeDoor();
+      if (desiredDoorStatus == STATUS_CLOSED)
+      {
+        Serial.println("   Closing door...");
+        closeDoor();
+      }
+      else 
+      {
+        Serial.printf("   Warning: Door is not completely closed however the desired door state is currently: %s\n", desiredDoorStatus);
+      }
     }
     else 
     { // Door is already closed
