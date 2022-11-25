@@ -1,19 +1,28 @@
+#include <ESP8266WiFi.h>
+#include <Firebase_ESP_Client.h>
+
+#include "RTDBHelper.h"
+#include "TokenHelper.h"
+
+#include "WifiCreds.h"
+
 #include "KittyDoor.h"
 
-
-// int restartCount = 0;           // Used as a UID for controller debug statements
+// int restartCount = 0;          // Used as a UID for controller debug statements
 String command = NONE;            // Used to process commands from Firebase
 String oldDoorStatus = NONE;      // Used to determine status changes
 String desiredDoorStatus = NONE;  // Used for remote override
 
-KittyDoorOptions options;       // All values pertaining to door options (i.e. triggering light levels, etc)
-KittyDoorValues values;         // All values pertaining to current door status (i.e. current light level, state, etc)
+KittyDoorOptions options;         // All values pertaining to door options (i.e. triggering light levels, etc)
+KittyDoorValues values;           // All values pertaining to current door status (i.e. current light level, state, etc)
 
 // Firebase Variables
-FirebaseData firebaseData;      // FirebaseESP8266 data object
-FirebaseData firebaseSendData;  // FirebaseESP8266 data object used to send updates
+FirebaseData firebaseData;        // FirebaseESP8266 data object
+FirebaseData firebaseSendData;    // FirebaseESP8266 data object used to send updates
+FirebaseAuth auth;                // FirebaseAuth data for authentication data
+FirebaseConfig firebaseConfig;    // FirebaseConfig data for config data
 
-unsigned int firebaseLogCounter;    // Used to log unique messages to firebase
+unsigned int firebaseLogCounter;  // Used to log unique messages to firebase
 
 void setup()
 {
@@ -59,16 +68,27 @@ void setup()
   Serial.println();
 
   // Connect to Firebase
-  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+  firebaseConfig.token_status_callback = tokenStatusCallback;
+  firebaseConfig.database_url = FIREBASE_HOST;
+  firebaseConfig.api_key = FIREBASE_AUTH;
+
+  auth.user.email = FIREBASE_EMAIL;
+  auth.user.password = FIREBASE_PASS;
+
   Firebase.reconnectWiFi(true);
-  Firebase.setMaxRetry(firebaseData, 4);
-  firebaseData.setResponseSize(1024);
+  Firebase.setDoubleDigits(5);
+
+  Firebase.begin(&firebaseConfig, &auth);
+  //Recommend for ESP8266 stream, adjust the buffer size to match stream data size
+  #if defined(ESP8266)
+    firebaseData.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
+  #endif
 
   // Get log counter
   Serial.println("Fetching log counter...");
-  if (Firebase.get(firebaseData, "debug/kitty_door/msg_count"))
+  if (Firebase.RTDB.getInt(&firebaseData, "debug/kitty_door/msg_count"))
   {
-    firebaseLogCounter = (unsigned int) firebaseDat.intData();
+    firebaseLogCounter = (unsigned int) firebaseData.to<int>();
     Serial.print("Log counter set to: ");
     Serial.println(firebaseLogCounter);
   }
@@ -80,9 +100,10 @@ void setup()
 
   // Get Initial Options From Firebase
   Serial.println("Fetching initial options...");
-  if (Firebase.get(firebaseData, PATH_OPTIONS))
+  FirebaseJson initialOptions;
+  if (Firebase.RTDB.getJSON(&firebaseData, PATH_OPTIONS, &initialOptions))
   {
-    handleNewOptions(firebaseData.jsonData());
+    handleNewOptions(&initialOptions);
     sendFirebaseMessage("Initial Firebase Options fetched... current counter: " + firebaseLogCounter);
   }
   else {
@@ -90,21 +111,13 @@ void setup()
     Serial.println("REASON: " + firebaseData.errorReason());
   }
 
-
   // Begin Streaming
   Serial.print("Streaming to: ");
   Serial.println(PATH_OPTIONS);
 
-  if (!Firebase.beginStream(firebaseData, PATH_OPTIONS))
-  {
-    Serial.println("------------------------------------");
-    Serial.println("Can't begin stream connection...");
-    Serial.println("REASON: " + firebaseData.errorReason());
-    Serial.println("------------------------------------");
-    Serial.println();
-  }
-
-  Firebase.setStreamCallback(firebaseData, handleDataRecieved, handleTimeout);
+  if (!Firebase.RTDB.beginStream(&firebaseData, PATH_OPTIONS))
+    Serial.printf("stream begin error, %s\n\n", firebaseData.errorReason().c_str());
+  Firebase.RTDB.setStreamCallback(&firebaseData, handleDataRecieved, handleTimeout);
 }
 
 void handleTimeout(bool timeout)
@@ -115,6 +128,11 @@ void handleTimeout(bool timeout)
     Serial.println("Stream timeout, resume streaming...");
     Serial.println();
   }
+  if (!firebaseData.httpConnected())
+  {
+    Serial.printf("error code: %d, reason: %s\n\n", firebaseData.httpCode(), firebaseData.errorReason().c_str());
+    //ESP.reset();
+  }
 }
 
 void sendFirebaseMessage(String message)
@@ -123,7 +141,7 @@ void sendFirebaseMessage(String message)
   json.add("count", String(++firebaseLogCounter));
   json.add("message", message);
 
-  Firebase.set(firebaseSendData, PATH_DEBUG_MESSAGE + firebaseLogCounter, json);
+  Firebase.RTDB.setJSON(&firebaseSendData, PATH_DEBUG_MESSAGE + firebaseLogCounter, &json);
 }
 
 /* -------- Firebase Handlers -------- */
@@ -220,23 +238,32 @@ void handleNewOptions(FirebaseJson *json)
     }
 }
 
-void handleDataRecieved(StreamData data)
+void handleDataRecieved(FirebaseStream data)
 {
-  if (data.dataType() == "json")
+  if (data.dataTypeEnum() == fb_esp_rtdb_data_type_json)
   {
     Serial.println("Stream data available...");
-    // Serial.println("STREAM PATH: " + data.streamPath());
-    // Serial.println("EVENT PATH: " + data.dataPath());
-    // Serial.println("DATA TYPE: " + data.dataType());
-    // Serial.println("EVENT TYPE: " + data.eventType());
-    // Serial.print("VALUE: ");
-    // printResult(data);
-    // Serial.println();
-
-    FirebaseJson *json = data.jsonObjectPtr();
-    handleNewOptions(json);
-  }
+    handleNewOptions(data.to<FirebaseJson*>());
+  }  
 }
+
+// void handleDataRecieved(StreamData data)
+// {
+//   if (data.dataType() == "json")
+//   {
+//     Serial.println("Stream data available...");
+//     // Serial.println("STREAM PATH: " + data.streamPath());
+//     // Serial.println("EVENT PATH: " + data.dataPath());
+//     // Serial.println("DATA TYPE: " + data.dataType());
+//     // Serial.println("EVENT TYPE: " + data.eventType());
+//     // Serial.print("VALUE: ");
+//     // printResult(data);
+//     // Serial.println();
+
+//     FirebaseJson *json = data.jsonObjectPtr();
+//     handleNewOptions(json);
+//   }
+// }
 
 void handleNewCommand()
 {
@@ -311,7 +338,7 @@ void writeDoorStatusToFirebase()
   json.add("l_timestamp", String(millis()));
   json.add("type", doorStatus);
 
-  Firebase.set(firebaseSendData, PATH_STATUS_DOOR, json);
+  Firebase.RTDB.setJSON(&firebaseSendData, PATH_STATUS_DOOR, &json);
 }
 
 // 0 = no force open/close; 1 = force open; 2 = force close
@@ -322,7 +349,7 @@ void writeHWOverrideToFirebase()
   json.add("type", values.forceOpen == HIGH && values.forceClose == HIGH ? 0 : values.forceOpen == HIGH ? 1
                                                                                                         : 2);
 
-  Firebase.set(firebaseSendData, PATH_STATUS_HW_OVERRIDE, json);
+  Firebase.RTDB.setJSON(&firebaseSendData, PATH_STATUS_HW_OVERRIDE, &json);
 }
 
 void writeDoorLightLevelToFirebase()
@@ -330,7 +357,7 @@ void writeDoorLightLevelToFirebase()
   FirebaseJson json;
   json.add("ll_timestamp", String(millis()));
   json.add("level", values.lightLevel);
-  Firebase.set(firebaseSendData, PATH_STATUS_LIGHT_LEVEL, json);
+  Firebase.RTDB.setJSON(&firebaseSendData, PATH_STATUS_LIGHT_LEVEL, &json);
 }
 
 void writeOptionsToFirebase()
@@ -346,7 +373,7 @@ void writeOptionsToFirebase()
   json.add("autoOverride", options.overrideAuto);
   json.add("command", NONE);
 
-  Firebase.set(firebaseSendData, PATH_OPTIONS, json);
+  Firebase.RTDB.setJSON(&firebaseSendData, PATH_OPTIONS, &json);
 }
 
 /* -------- Sensor Checks -------- */
@@ -382,7 +409,7 @@ void checkLightLevel()
     return;
 
   // Changing from "too light to close" to "dark enough to close"
-  if (oldLightlevel > options.closeLightLevel && values.lightLevel <= options.closeLightLevel)
+  if (oldLightLevel > options.closeLightLevel && values.lightLevel <= options.closeLightLevel)
   {
     desiredDoorStatus = STATUS_CLOSED;
   }
@@ -711,132 +738,4 @@ void loop()
   // Serial.print("    down_sense_value: ");Serial.print(down_sense_value);
   // Serial.print("    force_open_value: ");Serial.print(force_open_value);
   // Serial.print("    force_close_value: ");Serial.println(force_close_value);
-}
-
-/* -------- Stream Data Debug -------- */
-void printResult(StreamData &data)
-{
-
-  if (data.dataType() == "int")
-    Serial.println(data.intData());
-  else if (data.dataType() == "float")
-    Serial.println(data.floatData(), 5);
-  else if (data.dataType() == "double")
-    printf("%.9lf\n", data.doubleData());
-  else if (data.dataType() == "boolean")
-    Serial.println(data.boolData() == 1 ? "true" : "false");
-  else if (data.dataType() == "string" || data.dataType() == "null")
-    Serial.println(data.stringData());
-  else if (data.dataType() == "json")
-  {
-    Serial.println();
-    FirebaseJson *json = data.jsonObjectPtr();
-    //Print all object data
-    Serial.println("Pretty printed JSON data:");
-    String jsonStr;
-    json->toString(jsonStr, true);
-    Serial.println(jsonStr);
-    Serial.println();
-    Serial.println("Iterate JSON data:");
-    Serial.println();
-    size_t len = json->iteratorBegin();
-    String key, value = "";
-    int type = 0;
-    for (size_t i = 0; i < len; i++)
-    {
-      json->iteratorGet(i, type, key, value);
-      Serial.print(i);
-      Serial.print(", ");
-      Serial.print("Type: ");
-      Serial.print(type == FirebaseJson::JSON_OBJECT ? "object" : "array");
-      if (type == FirebaseJson::JSON_OBJECT)
-      {
-        Serial.print(", Key: ");
-        Serial.print(key);
-      }
-      Serial.print(", Value: ");
-      Serial.println(value);
-    }
-    json->iteratorEnd();
-  }
-  else if (data.dataType() == "array")
-  {
-    Serial.println();
-    //get array data from FirebaseData using FirebaseJsonArray object
-    FirebaseJsonArray *arr = data.jsonArrayPtr();
-    //Print all array values
-    Serial.println("Pretty printed Array:");
-    String arrStr;
-    arr->toString(arrStr, true);
-    Serial.println(arrStr);
-    Serial.println();
-    Serial.println("Iterate array values:");
-    Serial.println();
-
-    for (size_t i = 0; i < arr->size(); i++)
-    {
-      Serial.print(i);
-      Serial.print(", Value: ");
-
-      FirebaseJsonData *jsonData = data.jsonDataPtr();
-      //Get the result data from FirebaseJsonArray object
-      arr->get(*jsonData, i);
-      if (jsonData->typeNum == FirebaseJson::JSON_BOOL)
-        Serial.println(jsonData->boolValue ? "true" : "false");
-      else if (jsonData->typeNum == FirebaseJson::JSON_INT)
-        Serial.println(jsonData->intValue);
-      else if (jsonData->typeNum == FirebaseJson::JSON_FLOAT)
-        Serial.println(jsonData->floatValue);
-      else if (jsonData->typeNum == FirebaseJson::JSON_DOUBLE)
-        printf("%.9lf\n", jsonData->doubleValue);
-      else if (jsonData->typeNum == FirebaseJson::JSON_STRING ||
-               jsonData->typeNum == FirebaseJson::JSON_NULL ||
-               jsonData->typeNum == FirebaseJson::JSON_OBJECT ||
-               jsonData->typeNum == FirebaseJson::JSON_ARRAY)
-        Serial.println(jsonData->stringValue);
-    }
-  }
-  else if (data.dataType() == "blob")
-  {
-
-    Serial.println();
-
-    for (int i = 0; i < data.blobData().size(); i++)
-    {
-      if (i > 0 && i % 16 == 0)
-        Serial.println();
-
-      if (i < 16)
-        Serial.print("0");
-
-      Serial.print(data.blobData()[i], HEX);
-      Serial.print(" ");
-    }
-    Serial.println();
-  }
-  else if (data.dataType() == "file")
-  {
-
-    Serial.println();
-
-    File file = data.fileStream();
-    int i = 0;
-
-    while (file.available())
-    {
-      if (i > 0 && i % 16 == 0)
-        Serial.println();
-
-      int v = file.read();
-
-      if (v < 16)
-        Serial.print("0");
-
-      Serial.print(v, HEX);
-      Serial.print(" ");
-      i++;
-    }
-    Serial.println();
-    file.close();
-  }
 }
