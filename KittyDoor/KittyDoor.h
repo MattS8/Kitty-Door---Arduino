@@ -4,12 +4,12 @@
 
 #pragma region Pins
     const int PIN_LIGHT_SENSOR = A0;
-    const int PIN_UP_SENSE = 4;
+    const int PIN_UP_SENSE = 13;
     const int PIN_DOWN_SENSE = 12;
     const int PIN_FORCE_OPEN = 14;
-    const int PIN_FORCE_CLOSE = 13;
+    const int PIN_FORCE_CLOSE = 2;
     const int PIN_OPEN_MOTOR = 5;
-    const int PIN_CLOSE_MOTOR = 2;
+    const int PIN_CLOSE_MOTOR = 4;
 #pragma endregion
 
 #pragma region Firebase Paths
