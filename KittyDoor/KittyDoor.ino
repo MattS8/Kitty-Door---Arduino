@@ -11,7 +11,7 @@
 #include <Firebase_ESP_Client.h>
 
 #pragma region BUILD TYPES
-	#define LEGACY_TOKEN
+	//#define LEGACY_TOKEN
 	#define REMOTE_DEBUGGING
 #pragma endregion
 
@@ -295,7 +295,7 @@ void handleNewOptions(FirebaseJson* json)
             options.overrideAuto = value == "true";
             if (!options.overrideAuto)
             {
-                Serial.println("Remote override DISABLED!");
+                debug_print("Handle New Options: REMOTE OVERRIDE DISABLED!");
                 status.desired = NONE;
             }
         }
@@ -304,10 +304,12 @@ void handleNewOptions(FirebaseJson* json)
             if (value == COMMAND_CLOSE)
             {
                 command = COMMAND_CLOSE;
+                status.desired = STATUS_CLOSED;
             }
             else if (value == COMMAND_OPEN)
             {
                 command = COMMAND_OPEN;
+                status.desired = STATUS_OPEN;
             }
             else if (value == COMMAND_READ_LIGHT_LEVEL)
             {
@@ -392,6 +394,7 @@ void read_hardware_override()
 {
     int newForceClose = digitalRead(PIN_FORCE_CLOSE);
     int newForceOpen = digitalRead(PIN_FORCE_OPEN);
+    //Serial.printf("----- Hardware Override -----\n\tForce Open: %d\n\tForce Close: %d\n----------------\n", newForceOpen, newForceClose);
 
     if (newForceOpen != values.forceOpen || newForceClose != values.forceClose)
     {
@@ -401,6 +404,8 @@ void read_hardware_override()
         options.overrideAuto = false;
 
         send_hardware_override_status();
+
+        debug_print("Read Hardware Override: New Override values received! \n\tNew Force Open: " + String(newForceOpen) + "\n\tNew Force Close: " + String(newForceClose));
     }
 }
 
@@ -409,6 +414,7 @@ void read_door_values()
     values.lightLevel = analogRead(PIN_LIGHT_SENSOR);
     values.upSense = digitalRead(PIN_UP_SENSE);
     values.downSense = digitalRead(PIN_DOWN_SENSE);
+    //Serial.printf("----- Levels -----\n\tLight Level: %d\n\tUpSense: %d\n\tDownSense:: %d\n----------------\n", values.lightLevel, values.upSense, values.downSense);
 }
 #pragma endregion
 
@@ -440,23 +446,21 @@ void run_new_command()
 {
     String newCommand = command;
     command = NONE;
-    Serial.print("Handling new command: ");Serial.println(newCommand);
-
     if (newCommand == COMMAND_OPEN)
     {
         if (values.upSense == HIGH)
         {
             if (values.forceOpen == HIGH && values.forceClose == HIGH)
             {
-                Serial.println("   opening door!");
+                debug_print("Run New Command: Valid OPEN command received!");
                 status.desired = STATUS_OPEN;
                 open_door();
             }
             else
-                Serial.println("   attempted to open door, but hardware override is enabled!");
+                debug_print("Run New Command: OPEN command received, however is currently in override mode!");
         }
         else
-            Serial.println("   door is already open!");
+            debug_print("Run New Command: OPEN command received, however the door is already open!");
     }
     else if (newCommand == COMMAND_CLOSE)
     {
@@ -464,20 +468,24 @@ void run_new_command()
         {
             if (values.forceClose == HIGH && values.forceOpen == HIGH)
             {
-                Serial.println("   closing door!");
+                debug_print("Run New Command: Valid CLOSE command received!");
                 status.desired = STATUS_CLOSED;
                 close_door();
             }
             else
-                Serial.println("   attempted to close door, but hardware override is enabled!");
+                debug_print("Run New Command: CLOSE command received, however is currently in override mode!");
         }
         else
-            Serial.println("   door is already closed!");
+            debug_print("Run New Command: CLOSE command received, however the door is already closed!");
     }
     else if (newCommand == COMMAND_READ_LIGHT_LEVEL)
     {
-        Serial.print("   writing light level of "); Serial.print(values.lightLevel); Serial.println(" to firebase!");
-        send_light_level();
+      debug_print("Run New Command: Writing light level of " + String(values.lightLevel) + " to firebase!");
+      send_light_level();
+    }
+    else
+    {
+      debug_print("Run New Command: Unknown command received -> " + newCommand);
     }
 
     check_status_update();
@@ -491,15 +499,14 @@ void operate_on_door()
     // If enabled and door is not up, open door
     if (values.forceOpen == LOW)
     {
-        Serial.println("Force Open Enabled:");
         if (values.upSense == HIGH)
         {
-            Serial.println("   Opening door...");
+            debug_print("Hardware Override Mode: Opening door...");
             open_door();
         }
         else
         { // Door is already open
-            Serial.println("   Door is already opened!");
+            debug_print("Hardware Override Mode: Door is open!");
             stop_door_motors(true);
         }
     }
@@ -507,32 +514,30 @@ void operate_on_door()
     // If enabled and door is not down, close door
     else if (values.forceClose == LOW)
     {
-        Serial.println("Force Close Enabled:");
         if (values.downSense == HIGH)
         {
-            Serial.println("   Closing door...");
+            debug_print("Hardware Override Mode: Closing door...");
             close_door();
         }
         else
         { // Door is already closed
-            Serial.println("   Door is already closed!");
+            debug_print("Hardware Override Mode: Door is closed!");
             stop_door_motors(false);
         }
     }
     // Else, check if we are in automatic mode or remote override mode
     else if (options.overrideAuto)
     {
-        Serial.println("   Remote Override Mode Enabled!");
         if (status.desired == STATUS_CLOSED)
         { // Remote command to CLOSE door
             if (values.downSense == HIGH)
             { // Door is not closed yet
-                Serial.println("   Closing Door...");
+                debug_print("Remote Override Mode: Closing door...");
                 close_door();
             }
             else
             { // Door is already closed
-                Serial.print("   Door is closed!");
+                debug_print("Remote Override Mode: Door is closed!");
                 stop_door_motors(false);
             }
         }
@@ -540,20 +545,18 @@ void operate_on_door()
         { // Remote command to OPEN door
             if (values.upSense == HIGH)
             { // Door is not open yet
-                Serial.println("   Opening Door...");
+              debug_print("Remote Override Mode: Opening door...");
                 open_door();
             }
             else
             { // Door is already open
-                Serial.println("   Door is open!");
+                debug_print("Remote Override Mode: Door is open!");
                 stop_door_motors(true);
             }
         }
         else
         { // Bad state, should never reach this
-            Serial.print("===== ERROR: remote override enabled, but desired status was in an unexpected state (");
-            Serial.print(status.desired);
-            Serial.println(") =====");
+          debug_print("===== ERROR: remote override enabled, but desired status was in an unexpected state (" + status.desired + ") =====");
             digitalWrite(PIN_CLOSE_MOTOR, LOW);
             digitalWrite(PIN_OPEN_MOTOR, LOW);
         }
@@ -562,135 +565,114 @@ void operate_on_door()
     // If in effect, check to see if it is time to open the door
     else if (values.delayOpening > 0)
     {
-        Serial.println("   Automatic Mode Enabled!");
-        Serial.println("      Delay (Open) In Effect:");
         if (millis() > values.delayOpening)
         {
-            Serial.println("      Delay time expired!");
             if (values.lightLevel >= options.openLightLevel)
             {
-                Serial.println("      Light level premits...");
                 if (values.upSense == HIGH)
                 {
-                    Serial.println("      Opening Door...");
+                    debug_print("Automatic Mode: Light level permits & delay expired -> Opening door...");
                     open_door();
                 }
                 else
                 {
-                    Serial.println("      Door already opened...");
+                    debug_print("Automatic Mode: Door open!");
                     stop_door_motors(true);
                 }
             }
             else
             { // It got dark before delay time was over!
-                Serial.println("      It got too dark!");
+                debug_print("Automatic Mode: It got too dark!");
                 values.delayOpening = -1;
             }
         }
         else
         {
-            Serial.print("      Still waiting ");
-            Serial.print(values.delayOpening - millis());
-            Serial.println(" milliseconds...");
+          debug_print("Automatic Mode: Still waiting...");
         }
     }
     // Else, check if a delay to close is in effect
     // If in effect, check to see if it is time to close the door
     else if (values.delayClosing > 0)
     {
-        Serial.println("   Automatic Mode Enabled!");
-        Serial.println("      Delay (Close) In Effect:");
         if (millis() > values.delayClosing)
         {
-            Serial.println("      Delay time expired!");
             if (values.lightLevel <= options.closeLightLevel)
             {
-                Serial.println("      Light level premits...");
                 if (values.downSense == HIGH)
                 {
-                    Serial.println("      Closing door...");
+                    debug_print("Automatic Mode: Light level permits & delay expired -> Closing door...");
                     close_door();
                 }
                 else
                 {
-                    Serial.println("      Door already closed...");
+                    debug_print("Automatic Mode: Door closed!");
                     stop_door_motors(false);
                 }
             }
             else
             { // It got light before delay time was over!
-                Serial.println("      It got too bright!");
+                debug_print("Automatic Mode: It got too bright!");
                 values.delayClosing = -1;
             }
         }
         else
         {
-            Serial.print("      Still waiting ");
-            Serial.print(values.delayClosing - millis());
-            Serial.println(" milliseconds...");
+            debug_print("Automatic Mode: Still waiting...");
         }
     }
     // Else, check if light level is high enough to open
     else if (values.lightLevel >= options.openLightLevel)
     {
-        Serial.println("   Automatic Mode Enabled!");
-        Serial.println("      It's bright enough to open up!");
         if (values.upSense == HIGH)
         {
             if (options.delayOpening)
             {
-                Serial.print("      Beginning DELAY of ");
-                Serial.print(options.delayOpeningVal);
-                Serial.println(" milliseconds");
+              debug_print("Automatic Mode: Bright enough to open! -> Beginning delay of " + String(options.delayOpeningVal) + " milliseconds.");
                 values.delayOpening = millis() + options.delayOpeningVal;
                 digitalWrite(PIN_CLOSE_MOTOR, LOW);
                 digitalWrite(PIN_OPEN_MOTOR, LOW);
             }
             else
             {
-                Serial.println("      Opening door...");
+                debug_print("Automatic Mode: Bright enough to open! -> Opening door...");
                 open_door();
             }
         }
         else
         {
-            Serial.println("      Door already open...");
+            debug_print("Automatic Mode: Bright enough to open! -> Is open!");
             stop_door_motors(true);
         }
     }
     // Else, check if light level is low enough to close
     else if (values.lightLevel <= options.closeLightLevel)
     {
-        Serial.println("   Automatic Mode Enabled!");
-        Serial.println("      It's dark enough to close!");
         if (values.downSense == HIGH)
         {
             if (options.delayClosing)
             {
-                Serial.print("      Beginning DELAY of ");
-                Serial.print(options.delayClosingVal);
-                Serial.println(" milliseconds");
+                debug_print("Automatic Mode: Dark enough to close! -> Beginning delay of " + String(options.delayClosingVal) + " milliseconds.");
                 values.delayClosing = millis() + options.delayClosingVal;
                 digitalWrite(PIN_CLOSE_MOTOR, LOW);
                 digitalWrite(PIN_OPEN_MOTOR, LOW);
             }
             else
             {
-                Serial.println("      Closing door...");
+                debug_print("Automatic Mode: Dark enough to close! -> Closing door...");
                 close_door();
             }
         }
         else
         {
-            Serial.println("      Door already closed...");
+            debug_print("Automatic Mode: Dark enough to close! -> Is Closed!");
             stop_door_motors(false);
         }
     }
     // Else, make sure the door is doing nothing
     else
     {
-        Serial.print("   Door resting at: ");
-        Serial.println(status.current);
+      debug_print("Door resting at: " + status.current);
         digitalWrite(PIN_CLOSE_MOTOR, LOW);
         digitalWrite(PIN_OPEN_MOTOR, LOW);
     }
@@ -702,9 +684,22 @@ void check_status_update()
 {
     if (status.old != status.current)
     {
-        Serial.print("   status changed from "); Serial.print(status.old); Serial.print(" to "); Serial.println(status.current);
-        send_door_status();
+      debug_print("Status changed from " + status.old + " to " + status.current + "!");
+      send_door_status();
     }
+}
+#pragma endregion
+
+#pragma region DebugPrint
+String __debug_string = "";
+
+void debug_print(String debugMessage)
+{
+  if (__debug_string == debugMessage)
+    return;
+
+  Serial.println(debugMessage);
+  __debug_string = debugMessage;
 }
 #pragma endregion
 
