@@ -12,7 +12,7 @@
 
 #pragma region BUILD TYPES
 	//#define LEGACY_TOKEN
-	#define REMOTE_DEBUGGING
+	//#define REMOTE_DEBUGGING
 #pragma endregion
 
 
@@ -206,22 +206,21 @@ void begin_streaming()
 #pragma region Firebase Data Handlers
 void handleTimeout(bool timeout)
 {
+  Serial.print("---\nTIMEOUT\n---");
     if (timeout)
         Serial.println("\nStream timeout, resume streaming...\n");
 }
 
 void handleDataRecieved(FirebaseStream data)
 {
+    debug_print("Stream data available...");
     if (data.dataType() == "json")
     {
-        Serial.println("Stream data available...");
-        // Serial.println("STREAM PATH: " + data.streamPath());
-        // Serial.println("EVENT PATH: " + data.dataPath());
-        // Serial.println("DATA TYPE: " + data.dataType());
-        // Serial.println("EVENT TYPE: " + data.eventType());
-        // Serial.print("VALUE: ");
-        // printResult(data);       // NOTE: Need to copy over printResult() function
-        // Serial.println();
+        debug_print("\tJson Data:");
+        debug_print("\tSTREAM PATH: " + data.streamPath());
+        debug_print("\tEVENT PATH: " + data.dataPath());
+        debug_print("\tDATA TYPE: " + data.dataType());
+        debug_print("\tEVENT TYPE: " + data.eventType());
 
         FirebaseJson* json = data.jsonObjectPtr();
         handleNewOptions(json);
@@ -237,6 +236,7 @@ void handleNewOptions(FirebaseJson* json)
 
     for (size_t i = 0; i < len; i++)
     {
+        debug_print("Json Iterator[" + String(i) + "]");
         json->iteratorGet(i, type, key, value);
         if (key == "closeLightLevel")
         {
@@ -341,16 +341,23 @@ void send_light_level()
     FirebaseJson json;
     json.add("ll_timestamp", String(millis()));
     json.add("level", values.lightLevel);
-    Firebase.RTDB.setJSON(&fbSendData, PATH_STATUS_LIGHT_LEVEL, &json);
+    if(!Firebase.RTDB.setJSON(&fbSendData, PATH_STATUS_LIGHT_LEVEL, &json))
+    {
+      debug_print("Send Error:\n" + fbSendData.errorReason());
+    }
 }
 
 void send_door_status()
 {
+    debug_print("Sending door status: " + status.current);
     FirebaseJson json;
     json.add("l_timestamp", String(millis()));
     json.add("type", status.current);
 
-    Firebase.RTDB.setJSON(&fbSendData, PATH_STATUS_DOOR, &json);
+    if (!Firebase.RTDB.setJSON(&fbSendData, PATH_STATUS_DOOR, &json))
+    {
+      debug_print("Send Error:\n" + fbSendData.errorReason());
+    }
 
 #ifdef REMOTE_DEBUGGING
     delay(500);
