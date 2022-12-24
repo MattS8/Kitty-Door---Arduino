@@ -7,7 +7,7 @@
 #include <Firebase_ESP_Client.h>
 #include <MB_NTP.h>
 #include <ESP8266WiFi.h>
-#include "KittyDoorNew.h"
+#include "KittyDoor.h"
 
 // Firebase Globals
 FirebaseConfig fbConfig;		// Configuration for connecting to firebase
@@ -121,7 +121,7 @@ void loop()
     }
   }
 
-  delay(2000);
+  delay(10);
 }
 
 ///////////////////////////////////
