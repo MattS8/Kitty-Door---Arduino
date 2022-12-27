@@ -8,6 +8,7 @@
 #include <MB_NTP.h>
 #include <ESP8266WiFi.h>
 #include "KittyDoor.h"
+#include "TokenHelper.h"
 
 // Firebase Globals
 FirebaseConfig fbConfig;		// Configuration for connecting to firebase
@@ -643,18 +644,26 @@ void connect_to_wifi()
 void connect_to_firebase()
 {
 	fbConfig.host = FIREBASE_HOST;
+  fbConfig.database_url = FIREBASE_HOST;
 	fbConfig.api_key = FIREBASE_API;
+  fbConfig.token_status_callback = fbTokenStatusCallback;
 
 	fbAuth.user.email = FIREBASE_USERNAME;
 	fbAuth.user.password = FIREBASE_PASS;
 
-  Firebase.begin(&fbConfig, &fbAuth);
-
   Firebase.reconnectWiFi(true);
 	Firebase.RTDB.setMaxRetry(&fbRecvData, 4);
+  Firebase.setDoubleDigits(5);
 	Firebase.RTDB.setMaxErrorQueue(&fbRecvData, 30);
 
   fbRecvData.setResponseSize(1024);
+
+  Firebase.begin(&fbConfig, &fbAuth);
+
+  //Recommend for ESP8266 stream, adjust the buffer size to match stream data size
+  #if defined(ESP8266)
+    firebaseData.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
+  #endif
 }
 
 void begin_streaming()
