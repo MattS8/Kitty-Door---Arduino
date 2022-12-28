@@ -662,7 +662,7 @@ void connect_to_firebase()
 
   //Recommend for ESP8266 stream, adjust the buffer size to match stream data size
   #if defined(ESP8266)
-    firebaseData.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
+    fbRecvData.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
   #endif
 }
 
@@ -707,7 +707,10 @@ void fbTimeoutCallback(bool timeout)
 {
     debug_print("fbTimeout occured!");
     if (timeout)
-        debug_print("\tStream Tiemout");
+    {
+      debug_print("\tStream Tiemout");
+      begin_streaming();
+    }
 }
 
 void handleNewData(FirebaseJson* json)
