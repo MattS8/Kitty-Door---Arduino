@@ -1,61 +1,76 @@
-#include <ESP8266WiFi.h>
-#include <Firebase_ESP_Client.h>
-
-#include "RTDBHelper.h"
-#include "TokenHelper.h"
-
-#include "WifiCreds.h"
-
 #include "KittyDoor.h"
 
-// int restartCount = 0;          // Used as a UID for controller debug statements
-String command = NONE;            // Used to process commands from Firebase
-String oldDoorStatus = NONE;      // Used to determine status changes
-String desiredDoorStatus = NONE;  // Used for remote override
+// int restartCount = 0;           // Used as a UID for controller debug statements
+String gCommand = NONE;            // Used to process commands from Firebase
+DoorStatus gDoorStatus;            // Keeps track of door state
 
-KittyDoorOptions options;         // All values pertaining to door options (i.e. triggering light levels, etc)
-KittyDoorValues values;           // All values pertaining to current door status (i.e. current light level, state, etc)
+KittyDoorOptions gOptions;         // All values pertaining to door options (i.e. triggering light levels, etc)
+KittyDoorValues gValues;           // All values pertaining to current door status (i.e. current light level, state, etc)
 
 // Firebase Variables
-FirebaseData firebaseData;        // FirebaseESP8266 data object
-FirebaseData firebaseSendData;    // FirebaseESP8266 data object used to send updates
-FirebaseAuth auth;                // FirebaseAuth data for authentication data
-FirebaseConfig firebaseConfig;    // FirebaseConfig data for config data
+FirebaseData gFirebaseData;        // FirebaseESP8266 data object
+FirebaseData gFirebaseSendData;    // FirebaseESP8266 data object used to send updates
+FirebaseAuth gFirebaseAuth;        // FirebaseAuth data for authentication data
+FirebaseConfig gFirebaseConfig;    // FirebaseConfig data for config data
 
-unsigned int firebaseLogCounter;  // Used to log unique messages to firebase
+///////////////////////////////////
+///// SETUP FUNCTIONS
+//////////////////////////////////
+#pragma region Setup
 
-void setup()
+// Pin values can be found in KittyDoor.h
+void initialize_pins()
 {
-  Serial.begin(9600);
-
   //analogReference(INTERNAL);              // 1.1V ref. 1.08mV resolution on analog inputs
   pinMode(PIN_LIGHT_SENSOR, INPUT);         // Ambient light from photo sensor
   pinMode(PIN_UP_SENSE, INPUT_PULLUP);      // Low when door is fully open
   pinMode(PIN_DOWN_SENSE, INPUT_PULLUP);    // Low when door is fully closed
   pinMode(PIN_FORCE_OPEN, INPUT_PULLUP);    // If low, force door to open
   pinMode(PIN_FORCE_CLOSE, INPUT_PULLUP);   // If low, force door to close
-  //
-  pinMode(PIN_OPEN_MOTOR, OUTPUT);          // If HIGH, door will open
-  pinMode(PIN_CLOSE_MOTOR, OUTPUT);         // If HIGH, door will close
-  //
+  
+  pinMode(PIN_OPEN_MOTOR, OUTPUT);          // If HIGH, door will open under normal circumstances
+  pinMode(PIN_CLOSE_MOTOR, OUTPUT);         // If HIGH, door will close under normal circumstances
+  
   digitalWrite(PIN_OPEN_MOTOR, LOW);        // Don't close door
   digitalWrite(PIN_CLOSE_MOTOR, LOW);       // Don't open door
+}
 
-  firebaseLogCounter = 0;
+// If we can't connect to firebase, ensure some default options are set so that the door
+//  will work on boot-up.
+void initialize_structs()
+{
+  gOptions.openLightLevel = 190;
+  gOptions.closeLightLevel = 40;
+  gOptions.delayOpening = false;
+  gOptions.delayOpeningVal = 0;
+  gOptions.delayClosing = false;
+  gOptions.delayClosingVal = 0;
 
-  options.openLightLevel = 190;
-  options.closeLightLevel = 40;
-  options.delayOpening = false;
-  options.delayOpeningVal = 0;
-  options.delayClosing = false;
-  options.delayClosingVal = 0;
+  gValues.delayOpening = -1;
+  gValues.delayClosing = -1;
+  gValues.forceClose = -1;
+  gValues.forceOpen = -1;
 
-  values.delayOpening = -1;
-  values.delayClosing = -1;
-  values.forceClose = -1;
-  values.forceOpen = -1;
+  // After initial calibration, the door should be in the OPEN state
+  gDoorStatus.current = STATUS_OPEN;
+  gDoorStatus.desired = STATUS_OPEN;
+}
 
-  // Connect to WiFi
+// Ensure the door is in the up/open state.
+void reset_door()
+{
+  open_door();
+
+  // Wait until door is completely open
+  while (digitalRead(PIN_UP_SENSE) != LOW)
+    delay(10);
+
+  stop_door_motors();
+}
+
+// Wifi credentials are stored in KittyDoor.h
+void initialize_wifi()
+{
   WiFi.begin(WIFI_AP_NAME, WIFI_AP_PASS);
 
   while (WiFi.status() != WL_CONNECTED)
@@ -68,693 +83,604 @@ void setup()
   Serial.print("Connected with IP: ");
   Serial.println(WiFi.localIP());
   Serial.println();
+}
 
-  // Connect to Firebase
-  firebaseConfig.token_status_callback = tokenStatusCallback;
-  firebaseConfig.database_url = FIREBASE_HOST;
-  firebaseConfig.api_key = FIREBASE_AUTH;
+// Set up the config, auth, and connection properties here.
+void initialize_firebase()
+{
+  gFirebaseConfig.token_status_callback = tokenStatusCallback;
+  gFirebaseConfig.host = FIREBASE_HOST;
+  gFirebaseConfig.api_key = FIREBASE_API;
 
-  auth.user.email = FIREBASE_EMAIL;
-  auth.user.password = FIREBASE_PASS;
+  gFirebaseAuth.user.email = FIREBASE_EMAIL;
+  gFirebaseAuth.user.password = FIREBASE_PASS;
+
+  Firebase.begin(&gFirebaseConfig, &gFirebaseAuth);
 
   Firebase.reconnectWiFi(true);
-  Firebase.setDoubleDigits(5);
+  Firebase.RTDB.setMaxRetry(&gFirebaseData, 5);
+  Firebase.RTDB.setMaxErrorQueue(&gFirebaseData, 30);
 
-  Firebase.begin(&firebaseConfig, &auth);
   //Recommend for ESP8266 stream, adjust the buffer size to match stream data size
   #if defined(ESP8266)
-    firebaseData.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
+    gFirebaseData.setBSSLBufferSize(1024 /* Rx in bytes */, 1024 /* Tx in bytes */);
   #endif
+}
 
-  // Get log counter
-  Serial.println("Fetching log counter...");
-  if (Firebase.RTDB.getInt(&firebaseData, "debug/kitty_door/msg_count"))
-  {
-    firebaseLogCounter = (unsigned int) firebaseData.to<int>();
-    Serial.print("Log counter set to: ");
-    Serial.println(firebaseLogCounter);
-  }
-  else 
-  {
-    Serial.println("FAILED");
-    Serial.println("REASON: " + firebaseData.errorReason());
-  }
-
-  // Get Initial Options From Firebase
-  Serial.println("Fetching initial options...");
+// These should be fetched first-thing to overwrite the initalized struct values.
+void fetch_initial_options()
+{
+  debug_print("Fetching initial options...");
   FirebaseJson initialOptions;
-  if (Firebase.RTDB.getJSON(&firebaseData, PATH_OPTIONS, &initialOptions))
+  if (Firebase.RTDB.getJSON(&gFirebaseData, PATH_STREAM, &initialOptions))
   {
-    handleNewOptions(&initialOptions);
-    sendFirebaseMessage("Initial Firebase Options fetched... current counter: " + firebaseLogCounter);
+    parse_firebase_data(&initialOptions);
   }
   else {
-    Serial.println("FAILED");
-    Serial.println("REASON: " + firebaseData.errorReason());
+    debug_print("FAILED\n\tREASON: " + gFirebaseData.errorReason());
   }
-
-  // Begin Streaming
-  Serial.print("Streaming to: ");
-  Serial.println(PATH_OPTIONS);
-
-  if (!Firebase.RTDB.beginStream(&firebaseData, PATH_OPTIONS))
-    Serial.printf("stream begin error, %s\n\n", firebaseData.errorReason().c_str());
-  Firebase.RTDB.setStreamCallback(&firebaseData, handleDataRecieved, handleTimeout);
 }
 
-void handleTimeout(bool timeout)
+// Firebase path can be found in KittyDoor.h
+void begin_streaming()
+{
+  debug_print("Streaming to: " + PATH_STREAM);
+
+  if (!Firebase.RTDB.beginStream(&gFirebaseData, PATH_STREAM))
+    Serial.printf("stream begin error, %s\n\n", gFirebaseData.errorReason().c_str());
+  Firebase.RTDB.setStreamCallback(&gFirebaseData, handle_data_received, handle_timeout);
+}
+
+// Main-level setup function called on boot-up
+void setup()
+{
+  Serial.begin(9600);
+
+  initialize_pins();
+
+  initialize_structs();
+
+  reset_door();
+
+  initialize_wifi();
+
+  initialize_firebase();
+
+  // Get Initial Options From Firebase
+  fetch_initial_options();
+
+  begin_streaming();
+}
+#pragma endregion Setup
+
+///////////////////////////////////
+///// FIREBASE HANDLERS
+//////////////////////////////////
+#pragma region Firebase Handlers
+
+// Should resume if still connected, otherwise we need to force a reconnection any way possible.
+void handle_timeout(bool timeout)
 {
   if (timeout)
+    debug_print("Stream timeout, resume streaming...");
+
+  // Bad solution - Force a reset to attempt setup again
+  if (!gFirebaseData.httpConnected())
   {
-    Serial.println();
-    Serial.println("Stream timeout, resume streaming...");
-    Serial.println();
+    Serial.printf("error code: %d, reason: %s\n\n", gFirebaseData.httpCode(), gFirebaseData.errorReason().c_str());
+    delay(150);
+    ESP.reset();
   }
-  if (!firebaseData.httpConnected())
+}
+  
+void handle_data_received(FirebaseStream data)
+{
+  if (data.dataType() == "json")
   {
-    Serial.printf("error code: %d, reason: %s\n\n", firebaseData.httpCode(), firebaseData.errorReason().c_str());
-    //ESP.reset();
+    debug_print(String("Callback received stream data!\nJson Data:")
+      + String("\n\tSTREAM PATH: ") + String(data.streamPath())
+      + String("\n\tEVENT PATH: ") + String(data.dataPath())
+      + String("\n\tDATA TYPE: ") + String(data.dataType())
+      + String("\n\tEVENT TYPE: ") + String(data.eventType()));
+
+    parse_firebase_data(data.jsonObjectPtr());
+  }
+  else
+  {
+    debug_print("Error: Callback received data of type: " + data.dataType());
+  } 
+}
+#pragma endregion Firebase Handlers
+
+///////////////////////////////////
+///// DEBUG FUNCTIONS
+//////////////////////////////////
+#pragma region Debug
+
+// Ensure that debug messages aren't spammed to the console.
+String gLastDebugMessage = "";
+void debug_print(String message)
+{
+  if (gLastDebugMessage != message)
+    Serial.println(message);
+  
+  gLastDebugMessage = message;
+}
+
+#pragma endregion Debug
+
+///////////////////////////////////
+///// PARSE FUNCTIONS
+//////////////////////////////////
+#pragma region Parse Functions
+
+void parse_firebase_data(FirebaseJson* json)
+{
+  size_t len = json->iteratorBegin();
+  String key, value = "";
+  int type = 0;
+
+  // Parse each option
+  for (size_t i = 0; i < len; i++)
+  {
+    json->iteratorGet(i, type, key, value);
+    if (key == "closeLightLevel")
+      parse_closeLightLevel(value.toInt());
+    else if (key == "openLightLevel")
+      parse_openLightLevel(value.toInt());
+    else if (key == "delayClosingVal")
+      parse_delayClosingVal(value.toInt());
+    else if (key == "delayOpeningVal")
+      parse_delayOpeningVal(value.toInt());
+    else if (key == "delayOpening")
+      parse_delayOpening(value);
+    else if (key == "delayClosing")
+      parse_delayOpening(value);
+    else if (key == "overrideAuto")
+      parse_overrideAuto(value);
+    else if (key == "command")
+      gCommand = value;
   }
 }
 
-void sendFirebaseMessage(String message)
+/* Parse Helper Functions */
+#pragma region Parse Helper Functions
+
+void send_options_to_firebase()
 {
   FirebaseJson json;
-  json.add("count", String(++firebaseLogCounter));
-  json.add("message", message);
+  json.add("closeLightLevel", gOptions.closeLightLevel);
+  json.add("openLightLevel", gOptions.openLightLevel);
+  json.add("delayOpening", gOptions.delayOpening);
+  json.add("delayClosing", gOptions.delayClosing);
+  json.add("delayOpeningVal", gOptions.delayOpeningVal);
+  json.add("delayClosingVal", gOptions.delayClosingVal);
+  json.add("o_timestamp", String(millis()));
+  json.add("autoOverride", gOptions.overrideAuto);
+  json.add("command", NONE);
 
-  Firebase.RTDB.setJSON(&firebaseSendData, PATH_DEBUG_MESSAGE + firebaseLogCounter, &json);
-}
-
-/* -------- Firebase Handlers -------- */
-
-void handleNewOptions(FirebaseJson *json)
-{
-    size_t len = json->iteratorBegin();
-    String key, value = "";
-    int type = 0;
-    int temp = -1;
-
-    for (size_t i = 0; i < len; i++)
-    {
-      json->iteratorGet(i, type, key, value);
-      if (key == "closeLightLevel")
-      {
-        temp = value.toInt();
-        if (temp < MIN_LIGHT_LEVEL)
-          temp = MIN_LIGHT_LEVEL;
-        else if (temp > MAX_LIGHT_LEVEL)
-          temp = MAX_LIGHT_LEVEL;
-        options.closeLightLevel = temp;
-      }
-      else if (key == "openLightLevel")
-      {
-        temp = value.toInt();
-        if (temp < MIN_LIGHT_LEVEL)
-          temp = MIN_LIGHT_LEVEL;
-        else if (temp > MAX_LIGHT_LEVEL)
-          temp = MAX_LIGHT_LEVEL;
-        sendFirebaseMessage("Option Change - openLightLevel set to: " + value.toInt());
-        options.openLightLevel = temp;
-      }
-      else if (key == "delayClosingVal")
-      {
-        temp = value.toInt();
-        if (temp >= 0)
-        {
-          options.delayClosingVal = temp;
-          values.delayClosing = -1;
-        }
-      }
-      else if (key == "delayOpeningVal")
-      {
-        temp = value.toInt();
-        if (temp >= 0)
-        {
-          options.delayOpeningVal = temp;
-          values.delayOpening = -1;
-        }
-      }
-      else if (key == "delayOpening")
-      {
-        options.delayOpening = value == "true";
-        if (!options.delayOpening)
-        {
-          values.delayOpening = -1;
-        }
-      }
-      else if (key == "delayClosing")
-      {
-        options.delayClosing = value == "true";
-        if (!options.delayClosing)
-        {
-          values.delayClosing = -1;
-        }
-      }
-      else if (key == "overrideAuto")
-      {
-        options.overrideAuto = value == "true";
-        if (!options.overrideAuto)
-        {
-          Serial.println("Remote override DISABLED!");
-          desiredDoorStatus = NONE;
-        }
-      }
-      else if (key == "command")
-      {
-        if (value == COMMAND_CLOSE)
-        {
-          command = COMMAND_CLOSE;
-        }
-        else if (value == COMMAND_OPEN)
-        {
-          command = COMMAND_OPEN;
-        }
-        else if (value == COMMAND_READ_LIGHT_LEVEL)
-        {
-          command = COMMAND_READ_LIGHT_LEVEL;
-        }
-        else
-          command = NONE;
-      }
-    }
-}
-
-void handleDataRecieved(FirebaseStream data)
-{
-  if (data.dataTypeEnum() == fb_esp_rtdb_data_type_json)
+  if (!Firebase.RTDB.setJSON(&gFirebaseSendData, PATH_STREAM, &json))
   {
-    Serial.println("Stream data available...");
-    handleNewOptions(data.to<FirebaseJson*>());
+    debug_print("(send_options_to_firebase) ERROR: " + gFirebaseSendData.errorReason());
   }  
 }
 
-// void handleDataRecieved(StreamData data)
-// {
-//   if (data.dataType() == "json")
-//   {
-//     Serial.println("Stream data available...");
-//     // Serial.println("STREAM PATH: " + data.streamPath());
-//     // Serial.println("EVENT PATH: " + data.dataPath());
-//     // Serial.println("DATA TYPE: " + data.dataType());
-//     // Serial.println("EVENT TYPE: " + data.eventType());
-//     // Serial.print("VALUE: ");
-//     // printResult(data);
-//     // Serial.println();
-
-//     FirebaseJson *json = data.jsonObjectPtr();
-//     handleNewOptions(json);
-//   }
-// }
-
-void handleNewCommand()
+void parse_overrideAuto(String value)
 {
-  String newCommand = command;
-  command = NONE;
-  oldDoorStatus = doorStatus;
-
-  Serial.print("Handling new command: ");
-  Serial.println(newCommand);
-
-  if (newCommand == COMMAND_OPEN)
+  gOptions.overrideAuto = value == "true";
+  if (!gOptions.overrideAuto)
   {
-    if (values.upSense == HIGH)
-    {
-      if (values.forceOpen == HIGH && values.forceClose == HIGH)
-      {
-        Serial.println("   opening door!");
-        desiredDoorStatus = STATUS_OPEN;
-        openDoor();
-      }
-      else 
-      {
-        Serial.println("   attempted to open door, but hardware override is enabled!");
-      }
-    } else {
-      Serial.println("   door is already open!");
-    }
+    // Invalidate door desired status to force a change if needed
+    gDoorStatus.desired = NONE;
   }
-  else if (newCommand == COMMAND_CLOSE)
-  {
-    if (values.downSense == HIGH)
-    {
-      if (values.forceClose == HIGH && values.forceOpen == HIGH)
-      {
-        Serial.println("   closing door!");
-        desiredDoorStatus = STATUS_CLOSED;
-        closeDoor();
-      }
-      else 
-      {
-        Serial.println("   attempted to close door, but hardware override is enabled!");       
-      }
-    } else {
-      Serial.println("   door is already closed!");
-    }
-  }
-  else if (newCommand == COMMAND_READ_LIGHT_LEVEL)
-  {
-    Serial.print("   writing light level of ");
-    Serial.print(values.lightLevel);
-    Serial.println(" to firebase!");
-    writeDoorLightLevelToFirebase();
-  }
-
-  if (oldDoorStatus != doorStatus)
-  {
-    Serial.print("   status changed from ");
-    Serial.print(oldDoorStatus);
-    Serial.print(" to ");
-    Serial.println(doorStatus);
-    writeDoorStatusToFirebase();
-  }
-
-  writeOptionsToFirebase();
 }
 
-/* -------- Firebase Write Operations -------- */
+void parse_delayClosing(String value)
+{
+  gOptions.delayClosing = value == "true";
+  if (!gOptions.delayClosing)
+  {
+    gValues.delayClosing = -1;
+  }
+}
 
-void writeDoorStatusToFirebase()
+void parse_delayOpening(String value)
+{
+  gOptions.delayOpening = value == "true";
+  if (!gOptions.delayOpening)
+  {
+    gValues.delayOpening = -1;
+  }
+}
+
+void parse_closeLightLevel(int newLevel)
+{
+  gOptions.closeLightLevel = clamp_int(newLevel, MIN_LIGHT_LEVEL, MAX_LIGHT_LEVEL);
+}
+
+void parse_openLightLevel(int newLevel)
+{
+  gOptions.openLightLevel = clamp_int(newLevel, MIN_LIGHT_LEVEL, MAX_LIGHT_LEVEL);
+}
+
+void parse_delayClosingVal(int newVal)
+{
+  if (newVal >= 0)
+  {
+    gOptions.delayClosingVal = newVal;
+    gValues.delayClosing = -1;
+  }
+}
+
+void parse_delayOpeningVal(int newVal)
+{
+    if (newVal >= 0)
+  {
+    gOptions.delayOpeningVal = newVal;
+    gValues.delayOpening = -1;
+  }
+}
+#pragma endregion Parse Helper Functions
+#pragma endregion Parse Functions
+
+///////////////////////////////////
+///// FIREBASE COMMAND HANDLERS
+//////////////////////////////////
+#pragma region Command Handlers
+
+/**
+ * Top-level function that determines which command to handle. Also clears the command on firebase
+ * to allow for new commands to be received.
+ */
+void process_command()
+{
+  String newCommand = gCommand;
+  gCommand = NONE;
+
+  // None Command is usually from a clear -> do nothing
+  if (newCommand == "\""+NONE+"\"" || newCommand == NONE)
+    return;
+  // Handle Open Door Command
+  else if (newCommand == "\""+COMMAND_OPEN+"\"" || newCommand == COMMAND_OPEN)
+    handle_open_command();
+  // Handle Close Door Command
+  else if (newCommand == "\""+COMMAND_CLOSE+"\"" || newCommand == COMMAND_CLOSE)
+    handle_close_command();
+  // Handle Read Light Sensor
+  else if (newCommand == "\""+COMMAND_READ_LIGHT_LEVEL+"\"" || newCommand == COMMAND_READ_LIGHT_LEVEL)
+    handle_requested_light_level();
+  // Unknown Command
+  else 
+    debug_print("parse_new_command: Unknown command received -> " + newCommand);
+
+  // Clears the command on firebase's end, signifying that the command has been received
+  //  and consumed on the door's end
+  send_options_to_firebase();
+}
+
+// Called when user requests to force open the door.
+void handle_open_command()
+{
+  // Do nothing if is door already opened
+  if (gValues.upSense == LOW)
+  {
+    debug_print("handle_open_command: Door already opened -> Doing nothig...");
+    return;
+  }
+
+  // Do nothing if hardware override is enabled
+  if (gValues.forceClose == LOW || gValues.forceOpen == LOW)
+  {
+    debug_print("handle_open_command: Hardware override enabled -> Doing nothig...");
+    return;
+  }
+
+  gDoorStatus.desired = STATUS_OPEN;
+  open_door();
+  debug_print("handle_open_command: Door can be opened -> Opening...");
+}
+
+// Called when user requests to force close the door.
+void handle_close_command()
+{
+    // Do nothing if is door already closed
+  if (gValues.downSense == LOW)
+  {
+    debug_print("handle_close_command: Door already closed -> Doing nothig...");
+    return;
+  }
+
+  // Do nothing if hardware override is enabled
+  if (gValues.forceClose == LOW || gValues.forceOpen == LOW)
+  {
+    debug_print("handle_close_command: Hardware override enabled -> Doing nothig...");
+    return;
+  }
+
+  gDoorStatus.desired = STATUS_CLOSED;
+  close_door();
+  debug_print("handle_close_command: Door can be opened -> Closing...");
+}
+
+// Callend when user requests current light readings from sensor.
+void handle_requested_light_level()
+{
+  // Read light level
+  FirebaseJson json;
+  json.add("ll_timestamp", String(millis()));
+  json.add("level", gValues.lightLevel);
+
+  // Send light level to firebase
+  if(!Firebase.RTDB.setJSON(&gFirebaseSendData, PATH_STATUS_LIGHT_LEVEL, &json))
+    debug_print("(handle_requested_light_level) ERROR: " + gFirebaseSendData.errorReason()); 
+}
+
+#pragma endregion Command Handlers
+
+///////////////////////////////////
+///// VALUE READING FUNCTIONS
+//////////////////////////////////
+#pragma region Value Readers
+
+/**
+ * Reads the values of the light sensor and the open/close state indicator pins.
+ * If a new state is detected, it is reported to firebase.
+*/
+void read_door_state()
+{
+  gValues.lightLevel = analogRead(PIN_LIGHT_SENSOR);
+
+  int newUpSense = digitalRead(PIN_UP_SENSE);
+  int newDownSense = digitalRead(PIN_DOWN_SENSE);
+
+  // New door state found -> report to firebase
+  if (newUpSense != gValues.upSense || newDownSense != gValues.downSense)
+  {
+    // Set new values
+    gValues.upSense = newUpSense;
+    gValues.downSense = newDownSense;
+
+    // Set current state
+    if (gValues.upSense == LOW)
+    {
+      gDoorStatus.current = STATUS_OPEN;
+      gDoorStatus.desired = NONE; // Resting state signifies desired state achieved
+      stop_door_motors();
+    }
+    else if (gValues.downSense == LOW)
+    {
+      gDoorStatus.current = STATUS_CLOSED;
+      gDoorStatus.desired = NONE; // Resting state signifies desired state achieved
+      stop_door_motors();
+    }
+    else
+    {
+      // Desired status signifies which action the door will try to take, putting the
+      //  door in a transient state.
+      gDoorStatus.current = gDoorStatus.desired == STATUS_OPEN
+        ? STATUS_OPENING
+        : STATUS_CLOSING;
+    }
+
+    // Send door state to firebase
+    send_door_state_to_firebase();    
+  }
+}
+
+/**
+  * Sends the latest state of the door to firebase. This should be called whenever 
+  * the door sensors read something different.
+*/
+void send_door_state_to_firebase()
 {
   FirebaseJson json;
   json.add("l_timestamp", String(millis()));
-  json.add("type", doorStatus);
+  json.add("type", gDoorStatus.current);
 
-  Firebase.RTDB.setJSON(&firebaseSendData, PATH_STATUS_DOOR, &json);
+  if (!Firebase.RTDB.setJSON(&gFirebaseSendData, PATH_STATUS_DOOR, &json))
+    debug_print("(send_door_state_to_firebase) ERROR: " + gFirebaseSendData.errorReason());
 }
 
-// 0 = no force open/close; 1 = force open; 2 = force close
-void writeHWOverrideToFirebase()
-{
-  FirebaseJson json;
-  json.add("hw_timestamp", String(millis()));
-  json.add("type", values.forceOpen == HIGH && values.forceClose == HIGH ? 0 : values.forceOpen == HIGH ? 1
-                                                                                                        : 2);
-
-  Firebase.RTDB.setJSON(&firebaseSendData, PATH_STATUS_HW_OVERRIDE, &json);
-}
-
-void writeDoorLightLevelToFirebase()
-{
-  FirebaseJson json;
-  json.add("ll_timestamp", String(millis()));
-  json.add("level", values.lightLevel);
-  Firebase.RTDB.setJSON(&firebaseSendData, PATH_STATUS_LIGHT_LEVEL, &json);
-}
-
-void writeOptionsToFirebase()
-{
-  FirebaseJson json;
-  json.add("closeLightLevel", options.closeLightLevel);
-  json.add("openLightLevel", options.openLightLevel);
-  json.add("delayOpening", options.delayOpening);
-  json.add("delayClosing", options.delayClosing);
-  json.add("delayOpeningVal", options.delayOpeningVal);
-  json.add("delayClosingVal", options.delayClosingVal);
-  json.add("o_timestamp", String(millis()));
-  json.add("autoOverride", options.overrideAuto);
-  json.add("command", NONE);
-
-  Firebase.RTDB.setJSON(&firebaseSendData, PATH_OPTIONS, &json);
-}
-
-/* -------- Sensor Checks -------- */
-
-void checkHardwareOverride()
+/**
+  * Reads the hardware override switch and reports back to firebase whenever
+  * a change has occured.
+*/
+void read_hardware_override()
 {
   int newForceClose = digitalRead(PIN_FORCE_CLOSE);
   int newForceOpen = digitalRead(PIN_FORCE_OPEN);
 
-  if (newForceOpen != values.forceOpen || newForceClose != values.forceClose)
+  // New mode found -> report to firebase
+  if (newForceClose != gValues.forceClose || newForceOpen != gValues.forceOpen)
   {
-    Serial.printf("\n--------\nNew Hardware Override!\n--------\tForce Close: %d -> %d\n\tForce Open: %d -> %d\n", 
-      values.forceClose, newForceClose, values.forceOpen, newForceOpen);
-    values.forceOpen = newForceOpen;
-    values.forceClose = newForceClose;
-    desiredDoorStatus = values.forceOpen == LOW 
+    gValues.forceClose = newForceClose;
+    gValues.forceOpen = newForceOpen;
+
+    // Any change to the hardware switch will invalidate whatever remote command was previously
+    //  given. Setting these will allow the automatic mode to determine the state of the
+    //  door until another remote command is given.
+    gOptions.overrideAuto = false;
+
+    // Trigger an action from the door to get it in the proper state
+    gDoorStatus.desired = gValues.forceOpen == LOW 
       ? STATUS_OPEN 
-      : values.forceClose == LOW 
+      : gValues.forceClose == LOW
         ? STATUS_CLOSED
         : NONE;
-    options.overrideAuto = false;
-    Serial.printf("New desired door status: %s\n\n", desiredDoorStatus);
 
-    writeHWOverrideToFirebase();
+    // Send hardware override status to firebase
+    send_hw_override_to_firebase();
   }
 }
 
-void checkLightLevel()
+/**
+  * Sends the latest status of whether or not the door is being overriden by the 
+  * hardware override switch.
+*/
+void send_hw_override_to_firebase()
 {
-  // Check if light change causes a new desired state
-  int oldLightLevel = values.lightLevel;
-  values.lightLevel = analogRead(PIN_LIGHT_SENSOR);
+  FirebaseJson json;
+  json.add("hw_timestamp", String(millis()));
+  json.add("type", gValues.forceOpen == HIGH && gValues.forceClose == HIGH 
+    ? 0 /* OFF */
+    : gValues.forceOpen == HIGH 
+      ? 1  /* FORCE CLOSE */
+      : 2  /* FORCE OPEN */
+    );
 
-  // If in an "override" mode, don't mess with the desiredDoorStatus based on light!
-  if (values.forceOpen == LOW || values.forceClose == LOW || options.overrideAuto)
-    return;
-
-  // Changing from "too light to close" to "dark enough to close"
-  if (oldLightLevel > options.closeLightLevel && values.lightLevel <= options.closeLightLevel)
-  {
-    desiredDoorStatus = STATUS_CLOSED;
-  }
-  // Changing from "too dark to open" to "light enough to open"
-  else if (oldLightLevel < options.openLightLevel && values.lightLevel >= options.openLightLevel)
-  {
-    desiredDoorStatus = STATUS_OPEN;
-  }
+  if (!Firebase.RTDB.setJSON(&gFirebaseSendData, PATH_STATUS_HW_OVERRIDE, &json))
+    debug_print("(send_hw_override_to_firebase) ERROR: " + gFirebaseSendData.errorReason());
 }
 
-/* -------- Door Motor Operations -------- */
+#pragma endregion Value Readers
 
-void openDoor()
+///////////////////////////////////
+///// DOOR OPERATIONS
+//////////////////////////////////
+#pragma region Door Operations
+
+void open_door()
 {
   digitalWrite(PIN_OPEN_MOTOR, HIGH);
   digitalWrite(PIN_CLOSE_MOTOR, LOW);
-  doorStatus = STATUS_OPENING;
-  values.delayOpening = -1;
+  delay(DOOR_OPERATION_DELAY);  // Defined in KittyDoor.h
 }
 
-void closeDoor()
+void close_door()
 {
-    digitalWrite(PIN_CLOSE_MOTOR, HIGH);
-    digitalWrite(PIN_OPEN_MOTOR, LOW);
-    doorStatus = STATUS_CLOSING;
-    values.delayClosing = -1;
+  digitalWrite(PIN_CLOSE_MOTOR, HIGH);
+  digitalWrite(PIN_OPEN_MOTOR, LOW);
+  delay(DOOR_OPERATION_DELAY);  // Defined in KittyDoor.h
 }
 
-/* -------- Door Motor Events -------- */
-
-void doorHasOpened()
+void stop_door_motors()
 {
   digitalWrite(PIN_OPEN_MOTOR, LOW);
   digitalWrite(PIN_CLOSE_MOTOR, LOW);
-  doorStatus = STATUS_OPEN;
-  desiredDoorStatus = NONE;
 }
 
-void doorHasClosed()
+/**
+ * Determines if the light level is at a point where the door should automatically open/close itself.
+ * In order to prevent this from continuously triggering, gDoorStatus.desired is used to keep track of the
+ * last action while in auto mode and prevents subsequent calls until the state has changed.
+ *
+ * For example:
+ * If the light level triggers the door to open, gDoorStatus.desired will be set to STATUS_OPEN
+ * and will prevent auto mode from triggering more open events until that status is cleared (i.e. via
+ * an override command from remote/hardware switch or light level drops low enough to trigger a close
+ * event.)
+ */
+void run_auto_mode()
 {
-  digitalWrite(PIN_OPEN_MOTOR, LOW);
-  digitalWrite(PIN_CLOSE_MOTOR, LOW);
-  doorStatus = STATUS_CLOSED;
-  desiredDoorStatus = NONE;
+  // Auto Open Door
+  if (gValues.lightLevel >= gOptions.openLightLevel && gDoorStatus.desired != STATUS_OPEN)
+  {
+    // Update desired status to match what state auto mode thinks the door should be in
+    gDoorStatus.desired = STATUS_OPEN;
+
+    // Door might already be in open state if a remote command toggled auto mode while the door is in
+    //  the proper position.
+    if (gValues.upSense != LOW)
+    {
+      open_door();
+    }
+  }
+  // Auto Close Door
+  else if (gValues.lightLevel <= gOptions.closeLightLevel && gDoorStatus.desired != STATUS_CLOSED)
+  {
+    // Update desired status to match what state auto mode thinks the door should be in
+    gDoorStatus.desired = STATUS_CLOSED;
+
+    // Door might already be in closed state if a remote command toggled auto mode while the door is in
+    //  the proper position.
+    if (gValues.downSense != LOW)
+    {
+      close_door();
+    }
+  }
 }
 
-/* -------- Big Ugly Long Loop Function -------- */
+/**
+ * Forces the door closed unless the sensor already says the door is closed. Clearing the desired status
+ * might not be needed here, as the door shouldn't operate based on this value. It is merely used to
+ * determine transient states.
+ */
+void run_force_close()
+{
+  if (gValues.downSense == LOW)
+  {
+    debug_print("Hardware Force Close has shut the door.");
+    gDoorStatus.desired = NONE;
+  }
+  else
+    close_door();
+}
+
+/**
+ * Forces the door open unless the sensor already says the door is opened. Clearing the desired status
+ * might not be needed here, as the door shouldn't operate based on this value. It is merely used to
+ * determine transient states.
+ */
+void run_force_open()
+{
+  if (gValues.upSense == LOW)
+  {
+    debug_print("Hardware Force open has opened the door.");
+    gDoorStatus.desired = NONE;
+  }
+  else
+    open_door();
+}
+#pragma endregion Door Operations
+
+///////////////////////////////////
+///// GENERIC HELPER FUNCTIONS
+//////////////////////////////////
+#pragma region Generic Helper Functions
+
+bool is_in_auto_mode()
+{
+  return !gOptions.overrideAuto && gValues.forceClose == HIGH && gValues.forceOpen == HIGH;
+}
+
+int clamp_int(int value, int min, int max)
+{
+  return value < MIN_LIGHT_LEVEL
+    ? MIN_LIGHT_LEVEL
+    : value > MAX_LIGHT_LEVEL
+      ? MAX_LIGHT_LEVEL
+      : value;
+}
+#pragma endregion Generic Helper Functions
+
+
 void loop()
 {
-  // Read new values
-  checkHardwareOverride();
-  checkLightLevel();
-  values.upSense = digitalRead(PIN_UP_SENSE);
-  values.downSense = digitalRead(PIN_DOWN_SENSE);
-  oldDoorStatus = doorStatus;
+  // Read hardware override - Desired Status can change here!
+  read_hardware_override();
 
-  // Handle any incoming commands/option changes from firebase
-  if (command != NONE)
+  // Read Door State - Desired Status can be cleared here!
+  read_door_state();
+
+  // Read any new command from firebase
+  process_command();
+
+  // Door is in force close mode and an action is required
+  if (gValues.forceClose == LOW && gDoorStatus.desired == STATUS_CLOSED)
   {
-    handleNewCommand();
+    run_force_close();
+  }
+  // Door is in force open mode and an action is required
+  else if (gValues.forceOpen == LOW && gDoorStatus.desired == STATUS_OPEN)
+  {
+    run_force_open();
+  }
+  // Door should determine its state from light level
+  else if (is_in_auto_mode())
+  {
+    run_auto_mode();
   }
 
-  // Check if hardware force open is enabled
-  // If enabled and door is not up, open door
-  if (values.forceOpen == LOW)
-  {
-    Serial.println("Force Open Enabled:");
-    if (values.upSense == HIGH)
-    {
-      if (desiredDoorStatus == STATUS_OPEN)
-      {
-        Serial.println("   Opening door...");
-        openDoor();
-      }
-      else
-      {
-        Serial.printf("   Warning: Door is not completely open however the desired door state is currently: %s\n", desiredDoorStatus);
-      }
-    }
-    else
-    { // Door is already open
-      Serial.println("   Door is already opened!");
-      doorHasOpened();
-    }
-  }
-  // Else, check if hardware force close is enabled
-  // If enabled and door is not down, close door
-  else if (values.forceClose == LOW)
-  {
-    Serial.println("Force Close Enabled:");
-    if (values.downSense == HIGH)
-    {
-      if (desiredDoorStatus == STATUS_CLOSED)
-      {
-        Serial.println("   Closing door...");
-        closeDoor();
-      }
-      else 
-      {
-        Serial.printf("   Warning: Door is not completely closed however the desired door state is currently: %s\n", desiredDoorStatus);
-      }
-    }
-    else 
-    { // Door is already closed
-      Serial.println("   Door is already closed!");
-      doorHasClosed();
-    }
-  }
-  // Else, check if we are in automatic mode or remote override mode
-  else if (options.overrideAuto)
-  {
-    Serial.println("   Remote Override Mode Enabled!");
-    if (desiredDoorStatus == STATUS_CLOSED)
-    { // Remote command to CLOSE door
-      if (values.downSense == HIGH)
-      { // Door is not closed yet
-        Serial.println("   Closing Door...");
-        closeDoor();
-      }
-      else 
-      { // Door is already closed
-        Serial.print("   Door is closed!");
-        doorHasClosed();
-      }
-    }
-    else if (desiredDoorStatus == STATUS_OPEN)
-    { // Remote command to OPEN door
-      if (values.upSense == HIGH)
-      { // Door is not open yet
-        Serial.println("   Opening Door...");
-        openDoor();
-      }
-      else 
-      { // Door is already open
-        Serial.println("   Door is open!");
-        doorHasOpened();
-      }
-    }
-    else 
-    { // Door has already been opened/closed based off of the last recieved override. Nothing needs to be done until
-      //  the next override command or is set back to auto mode 
-      digitalWrite(PIN_CLOSE_MOTOR, LOW);
-      digitalWrite(PIN_OPEN_MOTOR, LOW);
-    }
-  }
-  // Else, check if a delay to open is in effect
-  // If in effect, check to see if it is time to open the door
-  else if (values.delayOpening > 0)
-  {
-    Serial.println("   Automatic Mode Enabled!");
-    Serial.println("      Delay (Open) In Effect:");
-    if (millis() > values.delayOpening)
-    {
-      Serial.println("      Delay time expired!");
-      if (values.lightLevel >= options.openLightLevel)
-      {
-        Serial.println("      Light level premits...");
-        if (desiredDoorStatus == STATUS_OPEN && values.upSense == HIGH)
-        {
-          Serial.println("      Opening Door...");
-          openDoor();
-        }
-        else 
-        {
-          Serial.println("      Door already opened...");
-          doorHasOpened();
-        }
-      }
-      else 
-      { // It got dark before delay time was over!
-        Serial.println("      It got too dark!");
-        values.delayOpening = -1;
-      }
-    }
-    else 
-    {
-      Serial.print("      Still waiting ");
-      Serial.print(values.delayOpening - millis());
-      Serial.println(" milliseconds...");
-    }
-  }
-  // Else, check if a delay to close is in effect
-  // If in effect, check to see if it is time to close the door
-  else if (values.delayClosing > 0)
-  {
-    Serial.println("   Automatic Mode Enabled!");
-    Serial.println("      Delay (Close) In Effect:");
-    if (millis() > values.delayClosing)
-    {
-      Serial.println("      Delay time expired!");
-      if (values.lightLevel <= options.closeLightLevel)
-      {
-        Serial.println("      Light level premits...");
-        if (desiredDoorStatus == STATUS_CLOSED && values.downSense == HIGH)
-        {
-          Serial.println("      Closing door...");
-          closeDoor();  
-        }
-        else 
-        {
-          Serial.println("      Door already closed...");
-          doorHasClosed();
-        }
-      }
-      else 
-      { // It got light before delay time was over!
-        Serial.println("      It got too bright!");
-        values.delayClosing = -1;
-      }
-    }
-    else 
-    {
-      Serial.print("      Still waiting ");
-      Serial.print(values.delayClosing - millis());
-      Serial.println(" milliseconds...");
-    }
-  } 
-  // Else, check if light level is high enough to open
-  else if (values.lightLevel >= options.openLightLevel)
-  {
-    Serial.println("   Automatic Mode Enabled!");
-    Serial.println("      It's bright enough to open up!");
-    if (desiredDoorStatus == STATUS_OPEN && values.upSense == HIGH)
-    {
-      if (options.delayOpening)
-      {
-        Serial.print("      Beginning DELAY of ");
-        Serial.print(options.delayOpeningVal);
-        Serial.println(" milliseconds");
-        values.delayOpening = millis() + options.delayOpeningVal;
-        digitalWrite(PIN_CLOSE_MOTOR, LOW);
-        digitalWrite(PIN_OPEN_MOTOR, LOW);
-      }
-      else
-      {
-        Serial.println("      Opening door...");    
-        openDoor();
-      }
-    }
-    else 
-    {
-      Serial.println("      Door already open...");  
-      doorHasOpened();
-    }
-  }
-  // Else, check if light level is low enough to close
-  else if (values.lightLevel <= options.closeLightLevel)
-  {
-      Serial.println("   Automatic Mode Enabled!");
-      Serial.println("      It's dark enough to close!");
-    if (desiredDoorStatus == STATUS_CLOSED && values.downSense == HIGH)
-    {
-      if (options.delayClosing)
-      {
-        Serial.print("      Beginning DELAY of ");
-        Serial.print(options.delayClosingVal);
-        Serial.println(" milliseconds");
-        values.delayClosing = millis() + options.delayClosingVal;
-        digitalWrite(PIN_CLOSE_MOTOR, LOW);
-        digitalWrite(PIN_OPEN_MOTOR, LOW);
-      }
-      else 
-      {
-        Serial.println("      Closing door...");    
-        closeDoor();
-      }
-    }
-    else 
-    {
-      Serial.println("      Door already closed...");  
-      doorHasClosed();
-    }
-  }
-  // Else, make sure the door is doing nothing
-  else 
-  {
-    Serial.print("   Door resting at: ");
-    Serial.println(doorStatus);
-    digitalWrite(PIN_CLOSE_MOTOR, LOW);
-    digitalWrite(PIN_OPEN_MOTOR, LOW);
-
-    if (desiredDoorStatus != NONE)
-    {
-      Serial.print("WARNING: desiredDoorStatus was not none, however door is currently resting... (");
-      Serial.print(desiredDoorStatus);
-      Serial.println(")");
-    }
-  }
-
-  if (oldDoorStatus != doorStatus)
-  {
-    Serial.println();
-    Serial.print("Door status changed from ");
-    Serial.print(oldDoorStatus);
-    Serial.print(" to ");
-    Serial.print(doorStatus);
-    Serial.println();
-    writeDoorStatusToFirebase();
-  }
-
-  // Serial.print("Sensor Values:");
-  // Serial.print("  -> Light Level: ");Serial.print(values.lightLevel);
-  // Serial.print("  -> Up Sense: ");Serial.print(values.upSense);
-  // Serial.print("  -> Down Sense: ");Serial.print(values.downSense);
-  // Serial.print("  -> Force Open: ");Serial.print(values.forceOpen);
-  // Serial.print("  -> Force Close: ");Serial.println(values.forceClose);
-
-  //   if (force_open_value == LOW && up_sense_value == HIGH){
-  //     digitalWrite (open_door,HIGH);  //Open the door
-  //     digitalWrite (close_door,LOW);
-  //     light_above_open_value = 0;
-  //     light_below_close_value = 0;
-  //     goto stop_motor_skip;
-  //   }
-
-  //   if (force_close_value == LOW && force_open_value == HIGH && down_sense_value == HIGH){
-  //     digitalWrite (open_door,LOW);
-  //     digitalWrite (close_door,HIGH); //Close the door
-  //     light_above_open_value = 0;
-  //     light_below_close_value = 0;
-  //     goto stop_motor_skip;
-  //   }
-  //   if (light_above_open_value == HIGH && up_sense_value == HIGH && force_close_value == HIGH){
-  //     digitalWrite (open_door,HIGH);  //Open the door
-  //     digitalWrite (close_door,LOW);
-  //     goto stop_motor_skip;
-  //   }
-  //   if (light_below_close_value == HIGH && down_sense_value == HIGH && force_open_value == HIGH){
-  //     digitalWrite (open_door,LOW);
-  //     digitalWrite (close_door,HIGH); //Close the door
-  //     goto stop_motor_skip;
-  //   }
-  //   digitalWrite (open_door,LOW);  //Stop motor
-  //   digitalWrite (close_door,LOW); //Stop motor
-
-  // stop_motor_skip:
-
-  // Serial.print("light_level: ");Serial.print(light_level);
-  // Serial.print("    up_sense_value: ");Serial.print(up_sense_value);
-  // Serial.print("    down_sense_value: ");Serial.print(down_sense_value);
-  // Serial.print("    force_open_value: ");Serial.print(force_open_value);
-  // Serial.print("    force_close_value: ");Serial.println(force_close_value);
+  // .5 second delay helps ensure the Arduino doesn't trip over itself and crash
+  delay(500);
 }
