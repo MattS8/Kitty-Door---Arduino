@@ -575,27 +575,38 @@ void run_auto_mode()
   // Auto Open Door
   if (gValues.lightLevel >= gOptions.openLightLevel && gDoorStatus.desired != STATUS_OPEN)
   {
-    // Update desired status to match what state auto mode thinks the door should be in
-    gDoorStatus.desired = STATUS_OPEN;
-
     // Door might already be in open state if a remote command toggled auto mode while the door is in
     //  the proper position.
     if (gValues.upSense != LOW)
     {
-      open_door();
+      // Do nothing while door is in transient state - this assumes up motor is running
+      if (gDoorStatus.current != STATUS_OPENING)
+      {
+        debug_print("AUTO MODE: Opening door!");
+
+        // Update desired status to match what state auto mode thinks the door should be in
+        gDoorStatus.desired = STATUS_OPEN;
+        open_door();
+      }
     }
+    else
+      debug_print("AUTO MODE: Door already open.");
   }
   // Auto Close Door
   else if (gValues.lightLevel <= gOptions.closeLightLevel && gDoorStatus.desired != STATUS_CLOSED)
   {
-    // Update desired status to match what state auto mode thinks the door should be in
-    gDoorStatus.desired = STATUS_CLOSED;
-
     // Door might already be in closed state if a remote command toggled auto mode while the door is in
     //  the proper position.
     if (gValues.downSense != LOW)
     {
-      close_door();
+      if (gDoorStatus.current != STATUS_CLOSING)
+      {
+        debug_print("AUTO MODE: Closing door!");    
+
+        // Update desired status to match what state auto mode thinks the door should be in
+        gDoorStatus.desired = STATUS_CLOSED;  
+        close_door();
+      }
     }
   }
 }
@@ -681,6 +692,6 @@ void loop()
     run_auto_mode();
   }
 
-  // .5 second delay helps ensure the Arduino doesn't trip over itself and crash
-  delay(500);
+  // 100ms delay helps ensure the Arduino doesn't trip over itself and crash
+  delay(100);
 }

@@ -58,7 +58,7 @@
 
   const int MAX_LIGHT_LEVEL = 1023;
   const int MIN_LIGHT_LEVEL = 0;
-  const int DOOR_OPERATION_DELAY = 2000;  // Milliseconds delay to allow door to get off of sensor.
+  const int DOOR_OPERATION_DELAY = 500;  // Milliseconds delay to allow door to get off of sensor.
 #pragma endregion
 
 ///////////////////////////////////
