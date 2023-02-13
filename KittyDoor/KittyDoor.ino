@@ -1,5 +1,8 @@
 #include "KittyDoor.h"
 
+#define DEFAULT_LOOP_DELAY 50
+#define RESTING_LOOP_DELAY 500
+unsigned long gLoopDelay = DEFAULT_LOOP_DELAY;
 // int restartCount = 0;           // Used as a UID for controller debug statements
 String gCommand = NONE;            // Used to process commands from Firebase
 DoorStatus gDoorStatus;            // Keeps track of door state
@@ -115,6 +118,7 @@ void fetch_initial_options()
   if (Firebase.RTDB.getJSON(&gFirebaseData, PATH_STREAM, &initialOptions))
   {
     parse_firebase_data(&initialOptions);
+    gCommand = NONE;
   }
   else {
     debug_print("FAILED\n\tREASON: " + gFirebaseData.errorReason());
@@ -446,12 +450,14 @@ void read_door_state()
       gDoorStatus.current = STATUS_OPEN;
       gDoorStatus.desired = NONE; // Resting state signifies desired state achieved
       stop_door_motors();
+      gLoopDelay = RESTING_LOOP_DELAY;  // Increases delay to prevent "bouncing" on the sensor
     }
     else if (gValues.downSense == LOW)
     {
       gDoorStatus.current = STATUS_CLOSED;
       gDoorStatus.desired = NONE; // Resting state signifies desired state achieved
       stop_door_motors();
+      gLoopDelay = RESTING_LOOP_DELAY;  // Increases delay to prevent "bouncing" on the sensor
     }
     else
     {
@@ -460,9 +466,14 @@ void read_door_state()
       gDoorStatus.current = gDoorStatus.desired == STATUS_OPEN
         ? STATUS_OPENING
         : STATUS_CLOSING;
+
+      // Assuming that door is in transient state, reduce loop delay to catch the door hitting
+      //  a resting state quickly. Too long of a delay could cause the door to "miss" reading
+      //  the open/closed sensor and cause desync
+      gLoopDelay = DEFAULT_LOOP_DELAY;
     }
 
-    // Send door state to firebase
+    // Any change in door state should be reported to firebase
     send_door_state_to_firebase();    
   }
 }
@@ -544,6 +555,10 @@ void open_door()
   digitalWrite(PIN_OPEN_MOTOR, HIGH);
   digitalWrite(PIN_CLOSE_MOTOR, LOW);
   delay(DOOR_OPERATION_DELAY);  // Defined in KittyDoor.h
+
+  // We always want to quickly catch when the door hits a resting state after
+  //  opening the door
+  gLoopDelay = DEFAULT_LOOP_DELAY;
 }
 
 void close_door()
@@ -551,6 +566,10 @@ void close_door()
   digitalWrite(PIN_CLOSE_MOTOR, HIGH);
   digitalWrite(PIN_OPEN_MOTOR, LOW);
   delay(DOOR_OPERATION_DELAY);  // Defined in KittyDoor.h
+
+  // We always want to quickly catch when the door hits a resting state after
+  //  closing the door
+  gLoopDelay = DEFAULT_LOOP_DELAY;
 }
 
 void stop_door_motors()
@@ -667,11 +686,11 @@ int clamp_int(int value, int min, int max)
 
 void loop()
 {
-  // Read hardware override - Desired Status can change here!
-  read_hardware_override();
-
   // Read Door State - Desired Status can be cleared here!
   read_door_state();
+
+  // Read hardware override - Desired Status can change here!
+  read_hardware_override();
 
   // Read any new command from firebase
   process_command();
@@ -692,6 +711,6 @@ void loop()
     run_auto_mode();
   }
 
-  // 100ms delay helps ensure the Arduino doesn't trip over itself and crash
-  delay(100);
+  // This delay varies based on if a resting state has previously been recorded
+  delay(gLoopDelay);
 }
