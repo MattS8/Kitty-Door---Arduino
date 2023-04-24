@@ -4,6 +4,8 @@
 
 #define DEBUG_PRINTS
 
+#define MAX_OPERATION_TIME 5000 // 5 second timeout for door operations
+
 // Firebase Globals
 FirebaseConfig fbConfig; // Configuration for connecting to firebase
 FirebaseAuth fbAuth;     // Utilizes the email and pass
@@ -183,6 +185,7 @@ void close_door(bool reportToFirebase)
 void operate_on_door(int closeMotor, int openMotor, String transStatus, String finalStatus, bool (*isDoorResting)(), bool reportToFirebase)
 {
     status.current = transStatus;
+    long timeOperatedOnDoor = 0;
 
     if (reportToFirebase)
         send_door_state();
@@ -192,11 +195,13 @@ void operate_on_door(int closeMotor, int openMotor, String transStatus, String f
     values.delayClosing = -1;
 
     // Wait until door is closed/opened
-    while (!isDoorResting())
+    long operationStart = millis();
+    while (timeOperatedOnDoor < MAX_OPERATION_TIME && !isDoorResting())
     {
         values.downSense = digitalRead(PIN_DOWN_SENSE);
         values.upSense = digitalRead(PIN_UP_SENSE);
         delay(25); // A small delay stops random crashing (probably due to reading the pin too quickly)
+        timeOperatedOnDoor = millis() - operationStart;
     }
 
     // Door has reached closed state
