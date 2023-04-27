@@ -104,6 +104,13 @@ bool is_door_closed();          // Helper Function
  * @param message The unique debug string to print to terminal
  */
 void debug_print(String message);
+
+/**
+ * @brief Pings the server with the time the arduino device has
+ * been alive.
+ * 
+ */
+void debug_ping();
 #pragma endregion //Debug Functions
 
 #pragma endregion // FORWARD DECLARATIONS
@@ -129,6 +136,7 @@ void debug_print(String message);
   static const String PATH_STATUS_HW_OVERRIDE = "status/kitty_door_hw_override";
   static const String PATH_STATUS_LIGHT_LEVEL = "status/kitty_door_light_level";
   static const String PATH_STREAM = "systems/kitty_door";
+  static const String PATH_DEBUG_PING = "debug/kitty_door/ping";
 #pragma endregion
 
 #pragma region Arduino Constants
@@ -179,3 +187,10 @@ void debug_print(String message);
       bool overrideAuto;
   } KittyDoorOptions;
 #pragma endregion
+
+///////////////////////////////////
+///// DEBUG CONSTANTS
+//////////////////////////////////
+#pragma region Debug Constants
+const unsigned long DEBUG_PING_INTERVAL = 1000 * 60 * 10; // Every 10 minutes
+#pragma endregion // Debug Constants

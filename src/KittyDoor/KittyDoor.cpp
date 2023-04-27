@@ -2,7 +2,11 @@
 #include <Firebase_ESP_Client.h>
 #include "KittyDoor.h"
 
+////////////////////////////////
+// DEBUG #DEFINES
+////////////////////////////////
 #define DEBUG_PRINTS
+#define DEBUG_PING
 
 #define MAX_OPERATION_TIME 5000 // 5 second timeout for door operations
 
@@ -19,6 +23,10 @@ KittyDoorOptions options; // All values pertaining to door options (i.e. trigger
 KittyDoorValues values;   // All values pertaining to current door status (i.e. current light level, state, etc)
 
 DoorStatus status = {NONE, NONE};
+
+#ifdef DEBUG_PING
+unsigned long dbg_timeSinceLastPing = 0;
+#endif
 
 void setup()
 {
@@ -39,6 +47,8 @@ void setup()
     delay(500);
 
     begin_streaming();
+
+    debug_ping();
 }
 
 void loop()
@@ -99,6 +109,11 @@ void loop()
             }
         }
     }
+
+#ifdef DEBUG_PING
+    if (millis() - dbg_timeSinceLastPing > DEBUG_PING_INTERVAL)
+        debug_ping();
+#endif
 
     delay(25);
 }
@@ -333,6 +348,8 @@ void begin_streaming()
     }
 
     Firebase.RTDB.setStreamCallback(&fbRecvData, firebase_callback, timeout_callback);
+
+    debug_ping();
 }
 #pragma endregion // SETUP FUNCTIONS
 
@@ -599,6 +616,23 @@ void debug_print(String message)
 
     dbg_string = message;
     Serial.println(dbg_string);
+#endif
+}
+
+#ifdef DEBUG_PING
+
+#endif
+
+void debug_ping()
+{
+#ifdef DEBUG_PING
+    static unsigned long dbg_alive_count = 0;
+    dbg_timeSinceLastPing = millis();
+    FirebaseJson pingJson;
+    pingJson.add("time_alive", String(millis()));
+    pingJson.add("count", ++dbg_alive_count);
+    Firebase.RTDB.setJSON(&fbSendData, PATH_DEBUG_PING, &pingJson);
+
 #endif
 }
 #pragma endregion // DEBUG
