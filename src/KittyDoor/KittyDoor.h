@@ -58,6 +58,7 @@ void process_new_command();
 void firebase_callback(FirebaseStream data);
 void timeout_callback(bool connectionCut);
 void handle_callback_data(FirebaseJson *json);
+void handle_firebase_stream_failed();
 #pragma endregion //Firebase Callbacks
 
 // Door Functions

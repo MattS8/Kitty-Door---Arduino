@@ -373,6 +373,7 @@ void send_options()
     if (!Firebase.RTDB.setJSON(&fbSendData, PATH_STREAM, &json))
     {
         debug_print("ERROR (Send Options):\n\t" + fbSendData.errorReason());
+        handle_firebase_stream_failed();
     }
 }
 
@@ -385,6 +386,7 @@ void send_light_level()
     if (!Firebase.RTDB.setJSON(&fbSendData, PATH_STATUS_LIGHT_LEVEL, &json))
     {
         debug_print("ERROR (Send Light Level):\n\t" + fbSendData.errorReason());
+        handle_firebase_stream_failed();
     }
 }
 
@@ -401,6 +403,7 @@ void send_hardware_override_status()
     if (!Firebase.RTDB.setJSON(&fbSendData, PATH_STATUS_HW_OVERRIDE, &json))
     {
         debug_print("ERROR (Send Hardware Override Status):\n\t" + fbSendData.errorReason());
+        handle_firebase_stream_failed();
     }
 }
 
@@ -413,6 +416,7 @@ void send_door_state()
     if (!Firebase.RTDB.setJSON(&fbSendData, PATH_STATUS_DOOR, &json))
     {
         debug_print("ERROR (Send Door State):\n\t" + fbSendData.errorReason());
+        handle_firebase_stream_failed();
     }
 }
 #pragma endregion // FIREBASE SEND FUNCTIONS
@@ -598,6 +602,19 @@ void handle_callback_data(FirebaseJson *json)
         }
     }
 }
+
+void handle_firebase_stream_failed()
+{
+    debug_print("Attempting to reconnect to firebase...");
+    Firebase.reset(&fbConfig);
+    debug_print("\tReset!");
+    delay(3000);
+    debug_print("\tRunning connection routine again!");
+    connect_to_firebase();
+    debug_print("\tBeginning stream...");
+    begin_streaming();
+    debug_print("Done!");
+}
 #pragma endregion // FIREBASE CALLBACKS
 
 ///////////////////////////////////
@@ -631,7 +648,8 @@ void debug_ping()
     FirebaseJson pingJson;
     pingJson.add("time_alive", String(millis()));
     pingJson.add("count", ++dbg_alive_count);
-    Firebase.RTDB.setJSON(&fbSendData, PATH_DEBUG_PING, &pingJson);
+    if (!Firebase.RTDB.setJSON(&fbSendData, PATH_DEBUG_PING, &pingJson))
+        handle_firebase_stream_failed();
 
 #endif
 }
