@@ -1,28 +1,18 @@
 #pragma once
-#include <Arduino.h>
-
-// DON'T UPLOAD VALUES
-#define FIREBASE_HOST ""
-#define FIREBASE_API ""
-#define FIREBASE_USERNAME ""
-#define FIREBASE_PASS ""
-static const String WIFI_AP_NAME = "";
-static const String WIFI_AP_PASS = "";
-
 ///////////////////////////////////
 ///// FORWARD DECLARATIONS
 //////////////////////////////////
 #pragma region FORWARD DECLARATIONS
-// Setup Functions
-#pragma region Setup Functions
-void set_pin_modes();
-void set_default_door_options();
-void initialize_door();
-void connect_to_wifi();
-void connect_to_firebase();
-void fetch_initial_options();
-void begin_streaming();
-#pragma endregion // Setup Functions
+
+// Debug
+void debug_prin(String message, bool debugEnabled);
+
+/**
+ * @brief Parses stream result string and performs an action.
+ * Actions are either firebase commands or send functions.
+ * 
+ */
+void handleStreamResult();
 
 // Firebase Send Functions
 #pragma region Firebase Send Functions
@@ -30,7 +20,7 @@ void send_options();
 void send_light_level();
 void send_hardware_override_status();
 void send_door_state();
-#pragma endregion // Firebase Send Functions
+#pragma endregion //Firebase Send Functions
 
 // Firebase Commands Functions
 #pragma region Firebase Command Functions
@@ -46,20 +36,7 @@ void handle_open_command();
  * already closed.
  */
 void handle_close_command();
-
-/**
- * @brief Top-level function that handles all commands received from firebase.
- */
-void process_new_command();
-#pragma endregion //Firebase Command Functions
-
-// Firebase Callbacks
-#pragma region Firebase Callbacks
-void firebase_callback(FirebaseStream data);
-void timeout_callback(bool connectionCut);
-void handle_callback_data(FirebaseJson *json);
-void handle_firebase_stream_failed();
-#pragma endregion //Firebase Callbacks
+#pragma endregion // Firebase Send Functions
 
 // Door Functions
 #pragma region Door Functions
@@ -112,9 +89,12 @@ void debug_print(String message);
  * 
  */
 void debug_ping();
+
 #pragma endregion //Debug Functions
 
 #pragma endregion // FORWARD DECLARATIONS
+
+#define MAX_OPERATION_TIME 5000 // 5 second timeout for door operations
 
 ///////////////////////////////////
 ///// PINS
@@ -133,11 +113,12 @@ void debug_ping();
 ///// FIREBASE PATHS
 //////////////////////////////////
 #pragma region Firebase Paths
-  static const String PATH_STATUS_DOOR = "status/kitty_door/";
-  static const String PATH_STATUS_HW_OVERRIDE = "status/kitty_door_hw_override";
-  static const String PATH_STATUS_LIGHT_LEVEL = "status/kitty_door_light_level";
-  static const String PATH_STREAM = "systems/kitty_door";
-  static const String PATH_DEBUG_PING = "debug/kitty_door/ping";
+  static const String PATH_BASE = "systems/kitty_door/";
+  static const String PATH_STATUS_DOOR = "status/door_state";
+  static const String PATH_STATUS_HW_OVERRIDE = "status/hw_Override";
+  static const String PATH_STATUS_LIGHT_LEVEL = "status/light_level";
+  static const String PATH_STREAM = "controller";
+  static const String PATH_DEBUG_PING = "debug/ping";
 #pragma endregion
 
 #pragma region Arduino Constants
