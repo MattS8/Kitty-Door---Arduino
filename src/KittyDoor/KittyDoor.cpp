@@ -18,6 +18,7 @@ FirebaseData fbSendData; // Data object used to send status/debug messages to fi
 
 // Door Globals
 String command = NONE; // The next command the door should perform
+FirebaseJson* jsonData = nullptr; // JSON object from stream results
 
 KittyDoorOptions options; // All values pertaining to door options (i.e. triggering light levels, etc)
 KittyDoorValues values;   // All values pertaining to current door status (i.e. current light level, state, etc)
@@ -71,6 +72,13 @@ void loop()
      */
     if (command != NONE)
         process_new_command();
+
+    /*
+    * Firebase stream results are now handled in the loop to save on stack space. The
+    * hope is this will fix the disconnect bug currently plaguing this project.   
+    */
+    if (jsonData != nullptr)
+        handle_callback_data();
 
     /*
      * If the door is not in an override mode from hardware switch or firebase, the door should be in
@@ -330,7 +338,8 @@ void fetch_initial_options()
     debug_print("Fetching initial options...");
     if (Firebase.RTDB.get(&fbRecvData, PATH_STREAM))
     {
-        handle_callback_data(fbRecvData.to<FirebaseJson *>());
+        jsonData = fbRecvData.to<FirebaseJson *>();
+        handle_callback_data();
     }
     else
     {
@@ -510,8 +519,7 @@ void firebase_callback(FirebaseStream data)
         debug_print("\tDATA TYPE: " + data.dataType());
         debug_print("\tEVENT TYPE: " + data.eventType());
 
-        FirebaseJson *jsonData = data.jsonObjectPtr();
-        handle_callback_data(jsonData);
+        jsonData = data.jsonObjectPtr();
     }
     else
     {
@@ -529,8 +537,10 @@ void timeout_callback(bool connectionCut)
     }
 }
 
-void handle_callback_data(FirebaseJson *json)
+void handle_callback_data()
 {
+    FirebaseJson *json = jsonData;
+    jsonData = nullptr;
     size_t len = json->iteratorBegin();
     String key, value = "";
     int type = 0;
