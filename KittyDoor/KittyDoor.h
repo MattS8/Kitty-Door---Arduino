@@ -1,7 +1,7 @@
 #ifndef KITTY_DOOR_H
 #define KITTY_DOOR_H
 static const String FIREBASE_HOST = "home-controller-286c0.firebaseio.com";
-static const String FIREBASE_AUTH = "ldaTh4Iy2foRFvAPfdlib5kPMyYchWKF1RKdUGDQ";
+static const String FIREBASE_API_KEY = "";
 static const String FIREBASE_EMAIL = "mln.homecontroller@gmail.com";
 static const String FIREBASE_PASS = "";
 

@@ -24,6 +24,8 @@ FirebaseConfig firebaseConfig;    // FirebaseConfig data for config data
 
 unsigned int firebaseLogCounter;  // Used to log unique messages to firebase
 
+FirebaseJson* gNewOptions;
+
 void setup()
 {
   Serial.begin(9600);
@@ -72,7 +74,7 @@ void setup()
   // Connect to Firebase
   firebaseConfig.token_status_callback = tokenStatusCallback;
   firebaseConfig.database_url = FIREBASE_HOST;
-  firebaseConfig.api_key = FIREBASE_AUTH;
+  firebaseConfig.api_key = FIREBASE_API_KEY;
 
   auth.user.email = FIREBASE_EMAIL;
   auth.user.password = FIREBASE_PASS;
@@ -105,7 +107,8 @@ void setup()
   FirebaseJson initialOptions;
   if (Firebase.RTDB.getJSON(&firebaseData, PATH_OPTIONS, &initialOptions))
   {
-    handleNewOptions(&initialOptions);
+    gNewOptions = initialOptions;
+    handleNewOptions();
     sendFirebaseMessage("Initial Firebase Options fetched... current counter: " + firebaseLogCounter);
   }
   else {
@@ -148,8 +151,10 @@ void sendFirebaseMessage(String message)
 
 /* -------- Firebase Handlers -------- */
 
-void handleNewOptions(FirebaseJson *json)
+void handleNewOptions()
 {
+    FirebaseJson *json = gNewOptions;
+    gNewOptions = nullptr;
     size_t len = json->iteratorBegin();
     String key, value = "";
     int type = 0;
@@ -245,7 +250,7 @@ void handleDataRecieved(FirebaseStream data)
   if (data.dataTypeEnum() == fb_esp_rtdb_data_type_json)
   {
     Serial.println("Stream data available...");
-    handleNewOptions(data.to<FirebaseJson*>());
+    gNewOptions = data.to<FirebaseJson*>();
   }  
 }
 
@@ -475,6 +480,11 @@ void loop()
   if (command != NONE)
   {
     handleNewCommand();
+  }
+
+  if (gNewOptions != nullptr)
+  {
+    handleNewOptions();
   }
 
   // Check if hardware force open is enabled
