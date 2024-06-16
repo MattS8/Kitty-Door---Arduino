@@ -44,6 +44,7 @@ DoorState doorstate;
 AutoModeState autoMode;
 HwOverrideState hwOverride;
 String command = NONE;
+String desiredState = STATE_OPEN;
 #pragma endregion
 
 #pragma region MAIN
@@ -70,16 +71,16 @@ void loop()
     // Check for action if in "hw override mode"
     if (isHwForceCloseEnabled())
     {
-        closeDoor();
+        desiredState = STATE_CLOSED;
     }
     else if (isHwForceOpenEnabled())
     {
-        openDoor();
+        desiredState = STATE_OPEN;
     }
     // Check for action if in "auto mode"
     else if (autoMode.current)
     {
-        // todo: check light levels and set command accordingly
+        // Checks light levels and sets desiredState accordingly
         handleAutoMode();
     }
 
@@ -91,6 +92,17 @@ void loop()
     if (command != NONE)
         handleCommand();
 
+    // Operate on door based on the set desired state
+    if (desiredState == STATE_CLOSED)
+    {
+        closeDoor();
+    }
+    else
+    {
+        openDoor();
+    }
+
+    // Send any change in hw Override state to firebase
     if (hwOverride.current != hwOverride.previous)
     {
         sendHwOverrideStatus();
@@ -255,10 +267,10 @@ void readHardwareOverride()
     values.hwForceClose = digitalRead(PIN_FORCE_CLOSE);
     values.hwForceOpen = digitalRead(PIN_FORCE_OPEN);
     hwOverride.current = !isHwForceOpenEnabled() && !isHwForceCloseEnabled()
-                              ? HWO_DISABLED
-                          : isHwForceCloseEnabled()
-                              ? HWO_FORCE_OPEN
-                              : HWO_FORCE_CLOSE;
+                             ? HWO_DISABLED
+                         : isHwForceOpenEnabled()
+                             ? HWO_FORCE_OPEN
+                             : HWO_FORCE_CLOSE;
     autoMode.current = autoMode.current && hwOverride.current == HWO_DISABLED;
 }
 
@@ -304,7 +316,7 @@ void sendAutoMode()
 {
     JsonWriter writer;
     object_t json, obj1, obj2;
-    writer.create(obj1, "status", !autoMode.current);   // Backend checks if "auto-mode is overridden" so need to negate (silly)
+    writer.create(obj1, "status", !autoMode.current); // Backend checks if "auto-mode is overridden" so need to negate (silly)
     writer.create(obj2, "timestamp", String(millis()));
 }
 
@@ -333,6 +345,8 @@ void stopDoorMotors()
 
 void openDoor()
 {
+    desiredState = STATE_OPEN;
+    values.autoModeBuffer = 0;
     if (isDoorOpen())
     {
         stopDoorMotors();
@@ -348,6 +362,8 @@ void openDoor()
 
 void closeDoor()
 {
+    desiredState = STATE_CLOSED;
+    values.autoModeBuffer = 0;
     if (isDoorClosed())
     {
         stopDoorMotors();
@@ -395,39 +411,27 @@ void handleAutoMode()
 {
     if (values.lightLevel >= values.openLightLevel)
     {
-        if (millis() >= values.autoModeBuffer)
-        {
-            values.autoModeBuffer = 0;
-            openDoor();
-        }
-        else if (values.autoModeBuffer == 0)
+        if (values.autoModeBuffer == 0)
         {
             values.autoModeBuffer = millis() + BUFFER_TIME;
+        }
+        else if (millis() >= values.autoModeBuffer)
+        {
+            values.autoModeBuffer = 0;
+            desiredState = STATE_OPEN;
         }
     }
     else if (values.lightLevel <= values.closeLightLevel)
     {
-        if (millis() >= values.autoModeBuffer)
-        {
-            values.autoModeBuffer = 0;
-            closeDoor();
-        }
-        else if (values.autoModeBuffer == 0)
+        if (values.autoModeBuffer == 0)
         {
             values.autoModeBuffer = millis() + BUFFER_TIME;
         }
-    }
-
-    // Keep opening/closing the door if it is in a transitory state
-    // While it's not necessary to continually write to the motors,
-    // it is necessary to check if the door has reach a final state!
-    if (doorstate.current == STATE_OPENING)
-    {
-        openDoor();
-    }
-    else if (doorstate.current == STATE_CLOSING)
-    {
-        closeDoor();
+        else if (millis() >= values.autoModeBuffer)
+        {
+            values.autoModeBuffer = 0;
+            desiredState = STATE_CLOSED;
+        }
     }
 }
 
@@ -437,7 +441,7 @@ void handleCommand()
     {
         if (!isHwForceCloseEnabled() && !isHwForceOpenEnabled())
         {
-            openDoor();
+            desiredState = STATE_OPEN;
             autoMode.current = false;
         }
     }
@@ -445,7 +449,7 @@ void handleCommand()
     {
         if (!isHwForceCloseEnabled() && !isHwForceOpenEnabled())
         {
-            closeDoor();
+            desiredState = STATE_CLOSED;
             autoMode.current = false;
         }
     }

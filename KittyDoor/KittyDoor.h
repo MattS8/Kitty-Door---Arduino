@@ -17,13 +17,13 @@ static const String STATE_CLOSING = "CLOSING";
 ///// PINS
 //////////////////////////////////
 #pragma region Pins
-  const int PIN_LIGHT_SENSOR = A0;
-  const int PIN_UP_SENSE = 13;
-  const int PIN_DOWN_SENSE = 12;
-  const int PIN_FORCE_OPEN = 14;
-  const int PIN_FORCE_CLOSE = 2;
-  const int PIN_OPEN_MOTOR = 5;
-  const int PIN_CLOSE_MOTOR = 4;
+const int PIN_LIGHT_SENSOR = A0;
+const int PIN_UP_SENSE = 13;
+const int PIN_DOWN_SENSE = 12;
+const int PIN_FORCE_OPEN = 14;
+const int PIN_FORCE_CLOSE = 2;
+const int PIN_OPEN_MOTOR = 5;
+const int PIN_CLOSE_MOTOR = 4;
 #pragma endregion
 
 ///////////////////////////////////
@@ -42,8 +42,8 @@ void sendLightLevel();
 // Value Reading Functions
 void readHardwareOverride();
 void readLightLevel();
-bool isHwForceCloseEnabled();  // Helper Function
-bool isHwForceOpenEnabled();   // Helper Function
+bool isHwForceCloseEnabled(); // Helper Function
+bool isHwForceOpenEnabled();  // Helper Function
 bool isDoorOpen();            // Helper Function
 bool isDoorClosed();          // Helper Function
 
@@ -59,35 +59,35 @@ void debugKeepAlive();
 ///// STRUCTS
 //////////////////////////////////
 #pragma region Structures
-  typedef struct DoorState 
-  {
-    String previous;
-    String current;
-  } DoorState;
+typedef struct DoorState
+{
+  String previous;
+  String current;
+} DoorState;
 
-  typedef struct AutoModeState
-  {
-    bool previous;
-    bool current;
-  } AutoModeState;
-  
-  typedef struct HwOverrideState
-  {
-    int previous;
-    int current;
-  } HwOverrideState;
+typedef struct AutoModeState
+{
+  bool previous;
+  bool current;
+} AutoModeState;
 
-  typedef struct KittyDoorValues 
-  {
-      int lightLevel;
-      int upSense;
-      int downSense;
-      int hwForceOpen;
-      int hwForceClose;
-      long delayClosing;
-      long delayOpening;
-      int openLightLevel;
-      int closeLightLevel;
-      unsigned long autoModeBuffer;
-  } KittyDoorValues;
+typedef struct HwOverrideState
+{
+  int previous;
+  int current;
+} HwOverrideState;
+
+typedef struct KittyDoorValues
+{
+  int lightLevel;
+  int upSense;
+  int downSense;
+  int hwForceOpen;
+  int hwForceClose;
+  long delayClosing;
+  long delayOpening;
+  int openLightLevel;
+  int closeLightLevel;
+  unsigned long autoModeBuffer;
+} KittyDoorValues;
 #pragma endregion
