@@ -1,4 +1,3 @@
-#pragma region GLOBALS
 #include <Arduino.h>
 #if defined(ESP32) || defined(ARDUINO_RASPBERRY_PI_PICO_W) || defined(ARDUINO_GIGA)
 #include <WiFi.h>
@@ -15,32 +14,37 @@
 #elif __has_include(<WiFi.h>)
 #include <WiFi.h>
 #endif
-#include <WiFiClientSecure.h>
 
-#define DEBUG_PRINTS
-
-#include <FirebaseClient.h>
 #include <Arduino_JSON.h>
+#include <FirebaseClient.h>
 #include "Credentials.h"
 #include "KittyDoor.h"
-void cbReceiveTask(AsyncResult &aResult);
+
+void cbSendTask(AsyncResult &aResult);
+
+void cbStreamTask(AsyncResult &aResult);
+
 void printResult(AsyncResult &aResult);
 
-////// ---- Firebase Variables ---- //////
 DefaultNetwork network; // initilize with boolean parameter to enable/disable network reconnection
+
 UserAuth user_auth(API_KEY, USER_EMAIL, USER_PASSWORD);
+
 FirebaseApp app;
-WiFiClient basic_client1, basic_client2;
-AsyncResult streamResult;
+
+WiFiClient basic_client1, basic_client2, basic_client3;
 
 // The ESP_SSLClient uses PSRAM by default (if it is available), for PSRAM usage, see https://github.com/mobizt/FirebaseClient#memory-options
 // For ESP_SSLClient documentation, see https://github.com/mobizt/ESP_SSLClient
-WiFiClientSecure ssl_client1, ssl_client2, ssl_client3;
-// ESP_SSLClient ssl_client1, ssl_client2, ssl_client3;
+ESP_SSLClient ssl_client1, ssl_client2, ssl_client3;
+
 using AsyncClient = AsyncClientClass;
-AsyncClient fbActionClient(ssl_client1, getNetwork(network)), fbSendClient(ssl_client2, getNetwork(network)), fbAuthClient(ssl_client3, getNetwork(network));
+
+AsyncClient fbClientStream(ssl_client1, getNetwork(network)), aClient2(ssl_client2, getNetwork(network)), fbClientSend(ssl_client3, getNetwork(network));
+
 RealtimeDatabase Database;
-bool newDataReceived = false;
+
+RealtimeDatabaseResult dbResult;
 
 ////// ---- Kitty Door Variables ---- //////
 KittyDoorValues values; // All values pertaining to current door status (i.e. current light level, state, etc)
@@ -49,23 +53,23 @@ AutoModeState autoMode;
 HwOverrideState hwOverride;
 String command = NONE;
 String desiredState = STATE_OPEN;
-#pragma endregion
+bool newDataReceived = false;
 
-#pragma region MAIN
 void setup()
 {
     Serial.begin(115200);
-
     setPinModes();
-
     initializeDoor();
-
     setupFirebase();
 }
 
 void loop()
 {
+    // The async task handler should run inside the main loop
+    // without blocking delay or bypassing with millis code blocks.
+
     app.loop();
+
     Database.loop();
 
     // Read Door Values
@@ -110,26 +114,20 @@ void loop()
     if (hwOverride.current != hwOverride.previous)
     {
         sendHwOverrideStatus();
-        hwOverride.previous = hwOverride.current;
     }
 
     // Send any new door states to firebase
     if (doorstate.previous != doorstate.current)
     {
         sendDoorState();
-        doorstate.previous = doorstate.current;
     }
 
     // Send any change in autoMode state to firebase
     if (autoMode.current != autoMode.previous)
     {
         sendAutoMode();
-        autoMode.previous = autoMode.current;
     }
-
-    debugKeepAlive();
 }
-#pragma endregion
 
 ///////////////////////////////////
 ///// SETUP FUNCTIONS
@@ -193,7 +191,6 @@ void setupFirebase()
 {
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-    delay(1000);
     Serial.print("Connecting to Wi-Fi");
     while (WiFi.status() != WL_CONNECTED)
     {
@@ -209,8 +206,9 @@ void setupFirebase()
 
     Serial.println("Initializing app...");
 
-    // ssl_client1.setClient(&basic_client1);
-    // ssl_client2.setClient(&basic_client2);
+    ssl_client1.setClient(&basic_client1);
+    ssl_client2.setClient(&basic_client2);
+    ssl_client3.setClient(&basic_client3);
 
     ssl_client1.setInsecure();
     ssl_client2.setInsecure();
@@ -230,8 +228,9 @@ void setupFirebase()
 
     // ssl_client1.setDebugLevel(1);
     // ssl_client2.setDebugLevel(1);
+    // ssl_client3.setDebugLevel(1);
 
-    initializeApp(fbAuthClient, app, getAuth(user_auth), cbAuthTask, "authTask");
+    initializeApp(fbClientSend, app, getAuth(user_auth), cbAuthTask, "AUTH");
 
     // Binding the FirebaseApp for authentication handler.
     // To unbind, use Database.resetApp();
@@ -255,15 +254,16 @@ void setupFirebase()
     // the app to be authenticated before connecting the stream.
     // This is ok as stream task will be reconnected automatically when the app is authenticated.
 
-    Database.get(fbActionClient, "/systems/kitty_door/controller/action", cbReceiveTask, true /* SSE mode (HTTP Streaming) */, "StreamTask");
-    // Database.get(aClient2, "/test/stream/path2", cbReceiveTask, true /* SSE mode (HTTP Streaming) */, "streamTask2");
+    Database.get(fbClientStream, "/systems/kitty_door/controller/action", cbStreamTask, true /* SSE mode (HTTP Streaming) */, "ACTION");
 }
+
 #pragma endregion
 
 ///////////////////////////////////
 ///// VALUE READERS
 //////////////////////////////////
 #pragma region VALUE READERS
+
 void readHardwareOverride()
 {
     values.hwForceClose = digitalRead(PIN_FORCE_CLOSE);
@@ -276,7 +276,11 @@ void readHardwareOverride()
     autoMode.current = autoMode.current && hwOverride.current == HWO_DISABLED;
 }
 
-void readLightLevel() { values.lightLevel = analogRead(PIN_LIGHT_SENSOR); }
+void readLightLevel() 
+{ 
+  values.lightLevel = analogRead(PIN_LIGHT_SENSOR); 
+  delay(10);
+}
 
 bool isHwForceCloseEnabled() { return values.hwForceClose == LOW; }
 
@@ -287,55 +291,6 @@ bool isDoorOpen() { return values.upSense == LOW; }
 bool isDoorClosed() { return values.downSense == LOW; }
 
 #pragma endregion // VALUE READERS
-
-///////////////////////////////////
-///// FB SEND FUNCTIONS
-//////////////////////////////////
-#pragma region FB SEND FUNCTIONS
-void sendLightLevel()
-{
-    JsonWriter writer;
-    object_t json, obj1, obj2;
-    writer.create(obj1, "status", values.lightLevel);
-    writer.create(obj2, "timestamp", String(millis()));
-    writer.join(json, 2, obj1, obj2);
-
-    Database.set<object_t>(fbSendClient, "/systems/kitty_door/status/light_level", json, cbSendTask, "setLightLevel");
-}
-
-void sendHwOverrideStatus()
-{
-    JsonWriter writer;
-    object_t json, obj1, obj2;
-    writer.create(obj1, "status", hwOverride.current);
-    writer.create(obj2, "timestamp", String(millis()));
-    writer.join(json, 2, obj1, obj2);
-
-    Database.set<object_t>(fbSendClient, "/systems/kitty_door/status/hw_override", json, cbSendTask, "setHwOverride");
-}
-
-void sendAutoMode()
-{
-    JsonWriter writer;
-    object_t json, obj1, obj2;
-    writer.create(obj1, "status", !autoMode.current); // Backend checks if "auto-mode is overridden" so need to negate (silly)
-    writer.create(obj2, "timestamp", String(millis()));
-    writer.join(json, 2, obj1, obj2);
-
-    Database.set<object_t>(fbSendClient, "/systems/kitty_door/status/override_auto", json, cbSendTask, "setDoorState");
-}
-
-void sendDoorState()
-{
-    JsonWriter writer;
-    object_t json, obj1, obj2;
-    writer.create(obj1, "status", doorstate.current);
-    writer.create(obj2, "timestamp", String(millis()));
-    writer.join(json, 2, obj1, obj2);
-
-    Database.set<object_t>(fbSendClient, "/systems/kitty_door/status/door_state", json, cbSendTask, "setDoorState");
-}
-#pragma endregion
 
 ///////////////////////////////////
 ///// DOOR OPERATORS
@@ -383,13 +338,106 @@ void closeDoor()
 #pragma endregion
 
 ///////////////////////////////////
+///// FB SEND FUNCTIONS
+//////////////////////////////////
+#pragma region FB SEND FUNCTIONS
+
+void sendLightLevel()
+{
+    if (app.ready())
+    {
+        JsonWriter writer;
+        object_t json, obj1, obj2;
+        writer.create(obj1, "status", values.lightLevel);
+        writer.create(obj2, "timestamp", String(millis()));
+        writer.join(json, 2, obj1, obj2);
+
+        Database.set<object_t>(fbClientSend, "/systems/kitty_door/status/light_level", json, cbSendTask, "SEND");
+    }
+}
+
+void sendHwOverrideStatus()
+{
+    if (app.ready())
+    {
+        JsonWriter writer;
+        object_t json, obj1, obj2;
+        writer.create(obj1, "status", hwOverride.current);
+        writer.create(obj2, "timestamp", String(millis()));
+        writer.join(json, 2, obj1, obj2);
+
+        Database.set<object_t>(fbClientSend, "/systems/kitty_door/status/hw_override", json, cbSendTask, "SEND");
+        hwOverride.previous = hwOverride.current;
+    }
+}
+
+void sendAutoMode()
+{
+    if (app.ready())
+    {
+        JsonWriter writer;
+        object_t json, obj1, obj2;
+        writer.create(obj1, "status", !autoMode.current); // Backend checks if "auto-mode is overridden" so need to negate (silly)
+        writer.create(obj2, "timestamp", String(millis()));
+        writer.join(json, 2, obj1, obj2);
+
+        Database.set<object_t>(fbClientSend, "/systems/kitty_door/status/override_auto", json, cbSendTask, "SEND");
+        autoMode.previous = autoMode.current;
+    }
+}
+
+void sendDoorState()
+{
+    if (app.ready())
+    {
+        JsonWriter writer;
+        object_t json, obj1, obj2;
+        writer.create(obj1, "status", doorstate.current);
+        writer.create(obj2, "timestamp", String(millis()));
+        writer.join(json, 2, obj1, obj2);
+
+        Database.set<object_t>(fbClientSend, "/systems/kitty_door/status/door_state", json, cbSendTask, "SEND");
+        doorstate.previous = doorstate.current;
+    }
+}
+#pragma endregion
+
+///////////////////////////////////
 ///// CALLBACK HANDLERS
 //////////////////////////////////
 #pragma region CALLBACK HANDLERS
+
+void cbAuthTask(AsyncResult &aResult)
+{
+    printResult(aResult);
+}
+
+void cbSendTask(AsyncResult &aResult)
+{
+    printResult(aResult);
+}
+
+void cbStreamTask(AsyncResult &aResult)
+{
+    // WARNING!
+    // Do not put your codes inside the callback and printResult.
+
+    printResult(aResult);
+    if (aResult.available())
+    {
+        RealtimeDatabaseResult &RTDB = aResult.to<RealtimeDatabaseResult>();
+        if (RTDB.isStream())
+        {
+            dbResult = RTDB;
+            newDataReceived = true;
+            debugPrint("New Firebase action received!");
+        }
+    }
+}
+
 void handleNewFirebaseData()
 {
     newDataReceived = false;
-    RealtimeDatabaseResult &dbResult = streamResult.to<RealtimeDatabaseResult>();
     JSONVar resObj = JSON.parse(dbResult.to<String>());
 
     // JSON.typeof(jsonVar) can be used to get the type of the variable
@@ -473,111 +521,6 @@ void handleCommand()
     command = NONE;
 }
 
-#pragma endregion
-bool startedStreaming = false;
-void cbAuthTask(AsyncResult &aResult)
-{
-    if (aResult.isEvent())
-    {
-        int eventCode = aResult.appEvent().code();
-        debugPrintEvent(aResult);
-        if (eventCode == 10)
-        {
-            debugPrint("Authentication is ready!");
-            startedStreaming = true;
-        }
-    }
-
-    if (aResult.isDebug())
-    {
-        debugPrintDebug(aResult);
-    }
-
-    if (aResult.isError())
-    {
-        int errCode = aResult.error().code();
-        debugPrintError(aResult);
-        ESP.restart();
-    }
-
-    if (aResult.available())
-    {
-        newDataReceived = true;
-        streamResult = aResult;
-        debugPrintStreamObj(aResult);
-    }
-}
-
-void cbSendTask(AsyncResult &aResult)
-{
-    printResult(aResult);
-}
-
-void cbReceiveTask(AsyncResult &aResult)
-{
-    if (aResult.isEvent())
-    {
-        debugPrintEvent(aResult);
-    }
-
-    if (aResult.isDebug())
-    {
-        debugPrintDebug(aResult);
-    }
-
-    if (aResult.isError())
-    {
-        int errCode = aResult.error().code();
-        debugPrintError(aResult);
-        Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), errCode);
-        if (errCode == -4)
-        {
-            debugPrint("TCP disconnection detected. Attempting to reconnect...");
-            Database.resetApp();
-            deinitializeApp(app);
-            user_auth = UserAuth(API_KEY, USER_EMAIL, USER_PASSWORD);
-            initializeApp(fbAuthClient, app, getAuth(user_auth), cbAuthTask, "authTask");
-            // Binding the FirebaseApp for authentication handler.
-            // To unbind, use Database.resetApp();
-            app.getApp<RealtimeDatabase>(Database);
-
-            // Database.url(DATABASE_URL);
-            startedStreaming = false;
-        }
-    }
-
-    if (aResult.available())
-    {
-        newDataReceived = true;
-        streamResult = aResult;
-        debugPrintStreamObj(aResult);
-    }
-}
-
-///////////////////////////////////
-///// DEBUG FUNCTIONS
-//////////////////////////////////
-#pragma region DEBUG
-unsigned long ms = 0;
-
-void debugKeepAlive()
-{
-    if (millis() - ms > 20000 && app.ready())
-    {
-        ms = millis();
-
-        JsonWriter writer;
-
-        object_t json, obj1, obj2;
-
-        writer.create(obj1, "ms", ms);
-        writer.create(obj2, "rand", random(10000, 30000));
-        writer.join(json, 2, obj1, obj2);
-
-        Database.set<object_t>(fbSendClient, "/systems/kitty_door/debug/keep_alive", json, cbReceiveTask, "setTask");
-    }
-}
-
 void printResult(AsyncResult &aResult)
 {
     if (aResult.isEvent())
@@ -619,7 +562,6 @@ void printResult(AsyncResult &aResult)
             Serial.println("----------------------------");
             Firebase.printf("task: %s, payload: %s\n", aResult.uid().c_str(), aResult.c_str());
         }
-
 #if defined(ESP32) || defined(ESP8266)
         Firebase.printf("Free Heap: %d\n", ESP.getFreeHeap());
 #elif defined(ARDUINO_RASPBERRY_PI_PICO_W)
@@ -628,6 +570,13 @@ void printResult(AsyncResult &aResult)
     }
 }
 #pragma endregion
+
+///////////////////////////////////
+///// DEBUG FUNCTIONS
+//////////////////////////////////
+#pragma region DEBUG
+
+#define DEBUG_PRINTS
 
 // Ensure that debug messages aren't spammed to the console
 #ifdef DEBUG_PRINTS
@@ -643,58 +592,4 @@ void debugPrint(String message)
     Serial.println(dbg_string);
 #endif
 }
-
-void debugPrintDebug(AsyncResult &aResult)
-{
-#ifdef DEBUG_PRINTS
-    Firebase.printf("Debug task: %s, msg: %s\n", aResult.uid().c_str(), aResult.debug().c_str());
-#endif
-}
-
-void debugPrintEvent(AsyncResult &aResult)
-{
-#ifdef DEBUG_PRINTS
-    Firebase.printf("Event task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.appEvent().message().c_str(), aResult.appEvent().code());
-#endif
-}
-
-void debugPrintError(AsyncResult &aResult)
-{
-#ifdef DEBUG_PRINTS
-    Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), aResult.error().code());
-#endif
-}
-
-void debugPrintStreamObj(AsyncResult &aResult)
-{
-#ifdef DEBUG_PRINTS
-    RealtimeDatabaseResult &RTDB = aResult.to<RealtimeDatabaseResult>();
-    if (RTDB.isStream())
-    {
-        Serial.println("----------------------------");
-        Firebase.printf("task: %s\n", aResult.uid().c_str());
-        Firebase.printf("event: %s\n", RTDB.event().c_str());
-        Firebase.printf("path: %s\n", RTDB.dataPath().c_str());
-        Firebase.printf("data: %s\n", RTDB.to<const char *>());
-        Firebase.printf("type: %d\n", RTDB.type());
-
-        // The stream event from RealtimeDatabaseResult can be converted to the values as following.
-        bool v1 = RTDB.to<bool>();
-        int v2 = RTDB.to<int>();
-        float v3 = RTDB.to<float>();
-        double v4 = RTDB.to<double>();
-        String v5 = RTDB.to<String>();
-    }
-    else
-    {
-        Serial.println("----------------------------");
-        Firebase.printf("task: %s, payload: %s\n", aResult.uid().c_str(), aResult.c_str());
-    }
-
-#if defined(ESP32) || defined(ESP8266)
-    Firebase.printf("Free Heap: %d\n", ESP.getFreeHeap());
-#elif defined(ARDUINO_RASPBERRY_PI_PICO_W)
-    Firebase.printf("Free Heap: %d\n", rp2040.getFreeHeap());
-#endif
-#endif
-}
+#pragma endregion
