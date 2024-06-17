@@ -285,7 +285,6 @@ void readHardwareOverride()
                          : isHwForceOpenEnabled()
                              ? HWO_FORCE_OPEN
                              : HWO_FORCE_CLOSE;
-    autoMode.current = autoMode.current && hwOverride.current == HWO_DISABLED;
 }
 
 void readLightLevel() 
@@ -441,7 +440,6 @@ void cbStreamTask(AsyncResult &aResult)
     // WARNING!
     // Do not put your codes inside the callback and printResult.
 
-    printResult(aResult);
     if (aResult.available())
     {
         RealtimeDatabaseResult &RTDB = aResult.to<RealtimeDatabaseResult>();
@@ -465,8 +463,6 @@ void handleNewFirebaseData()
         debugPrint("New Firebase Data: Parsing input failed!");
         return;
     }
-
-    debugPrint("JSON.typeof(myObject) = " + JSON.typeof(resObj));
 
     if (resObj.hasOwnProperty("type"))
     {
@@ -530,7 +526,7 @@ void handleCommand()
     }
     else if (command == COMMAND_SET_TO_AUTO)
     {
-        autoMode.current = !isHwForceCloseEnabled() && !isHwForceOpenEnabled();
+        autoMode.current = true;
     }
     else if (command != NONE)
     {
