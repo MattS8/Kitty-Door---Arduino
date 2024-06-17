@@ -131,7 +131,7 @@ void loop()
 
 #ifdef DEBUG_PRINTS
     debugPrint(debugDoorVars
-        + debugHwOverride + (values.hwForceOpen ? debugForceOpen : values.hwForceClose ? debugForceClose : debugDisabled)
+        + debugHwOverride + (isHwForceCloseEnabled() ? debugForceOpen : isHwForceCloseEnabled() ? debugForceClose : debugDisabled)
         + debugAutoMode + (autoMode.current ? debugEnabled : debugDisabled)
         // + debugAutoModeBuffer + String(values.autoModeBuffer)
         + debugOpenSensor + (isDoorOpen() ? debugTriggered : debugNotTriggered)
@@ -331,7 +331,6 @@ void stopDoorMotors()
 void openDoor()
 {
     desiredState = STATE_OPEN;
-    values.autoModeBuffer = 0;
     if (isDoorOpen())
     {
         stopDoorMotors();
@@ -346,7 +345,6 @@ void openDoor()
 void closeDoor()
 {
     desiredState = STATE_CLOSED;
-    values.autoModeBuffer = 0;
     if (isDoorClosed())
     {
         stopDoorMotors();
