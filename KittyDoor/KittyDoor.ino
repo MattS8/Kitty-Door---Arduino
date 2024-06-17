@@ -129,18 +129,19 @@ void loop()
         sendAutoMode();
     }
 
-
+#ifdef DEBUG_PRINTS
     debugPrint(debugDoorVars
         + debugHwOverride + (values.hwForceOpen ? debugForceOpen : values.hwForceClose ? debugForceClose : debugDisabled)
         + debugAutoMode + (autoMode.current ? debugEnabled : debugDisabled)
-        + debugAutoModeBuffer + String(values.autoModeBuffer)
+        // + debugAutoModeBuffer + String(values.autoModeBuffer)
         + debugOpenSensor + (isDoorOpen() ? debugTriggered : debugNotTriggered)
         + debugClosedSensor + (isDoorClosed() ? debugTriggered : debugNotTriggered)
         + debugDoorStateCur + doorstate.current
         + debugDoorStatePrev + doorstate.previous
-        + debugLightLevel + String(values.lightLevel) + debugLightLevel1 
-        + String(values.openLightLevel) + debugLightLevel2 + String(values.closeLightLevel) + debugLightLevel3
+        // + debugLightLevel + String(values.lightLevel) + debugLightLevel1 
+        // + String(values.openLightLevel) + debugLightLevel2 + String(values.closeLightLevel) + debugLightLevel3
     );
+#endif
 }
 
 ///////////////////////////////////
@@ -300,6 +301,10 @@ void readDoorSensors()
 {
     values.upSense = digitalRead(PIN_UP_SENSE);
     values.downSense = digitalRead(PIN_DOWN_SENSE);
+    doorstate.current = isDoorOpen() ? STATE_OPEN
+        : isDoorClosed() ? STATE_CLOSED
+            : desiredState == STATE_OPEN ? STATE_OPENING
+            : STATE_CLOSING;
 }
 
 bool isHwForceCloseEnabled() { return values.hwForceClose == LOW; }
@@ -330,11 +335,9 @@ void openDoor()
     if (isDoorOpen())
     {
         stopDoorMotors();
-        doorstate.current = STATE_OPEN;
     }
     else
     {
-        doorstate.current = STATE_OPENING;
         digitalWrite(PIN_CLOSE_MOTOR, LOW);
         digitalWrite(PIN_OPEN_MOTOR, HIGH);
     }
@@ -347,7 +350,6 @@ void closeDoor()
     if (isDoorClosed())
     {
         stopDoorMotors();
-        doorstate.current = STATE_CLOSED;
     }
     else
     {
@@ -450,7 +452,6 @@ void cbStreamTask(AsyncResult &aResult)
         {
             dbResult = RTDB;
             newDataReceived = true;
-            debugPrint("New Firebase action received!");
         }
     }
 }
@@ -470,6 +471,7 @@ void handleNewFirebaseData()
     if (resObj.hasOwnProperty("type"))
     {
         String actionType = String((const char *)resObj["type"]);
+        debugPrint(String("New Command: ") + actionType);
         if (actionType != NONE)
         {
             command = actionType;
