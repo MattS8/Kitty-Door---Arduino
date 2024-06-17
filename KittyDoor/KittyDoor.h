@@ -42,6 +42,7 @@ void sendLightLevel();
 // Value Reading Functions
 void readHardwareOverride();
 void readLightLevel();
+void readDoorSensors();
 bool isHwForceCloseEnabled(); // Helper Function
 bool isHwForceOpenEnabled();  // Helper Function
 bool isDoorOpen();            // Helper Function

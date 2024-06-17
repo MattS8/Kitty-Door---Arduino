@@ -73,6 +73,7 @@ void loop()
     Database.loop();
 
     // Read Door Values
+    readDoorSensors();
     readHardwareOverride();
     readLightLevel();
 
@@ -136,11 +137,11 @@ void loop()
 
 void initializeDoor()
 {
-    values.upSense = digitalRead(PIN_UP_SENSE);
-    values.downSense = digitalRead(PIN_DOWN_SENSE);
+    readDoorSensors();
+    readLightLevel();
     values.hwForceClose = digitalRead(PIN_FORCE_CLOSE);
     values.hwForceOpen = digitalRead(PIN_FORCE_OPEN);
-    values.lightLevel = analogRead(PIN_LIGHT_SENSOR);
+
     values.openLightLevel = 190;
     values.closeLightLevel = 40;
     values.autoModeBuffer = 0;
@@ -164,6 +165,7 @@ void initializeDoor()
     while (!isDoorOpen())
     {
         // This runs the proper checking logic to stop the door once it is open.
+        readDoorSensors();
         openDoor();
         delay(50);
     }
@@ -282,6 +284,12 @@ void readLightLevel()
   delay(10);
 }
 
+void readDoorSensors()
+{
+    values.upSense = digitalRead(PIN_UP_SENSE);
+    values.downSense = digitalRead(PIN_DOWN_SENSE);
+}
+
 bool isHwForceCloseEnabled() { return values.hwForceClose == LOW; }
 
 bool isHwForceOpenEnabled() { return values.hwForceOpen == LOW; }
@@ -327,6 +335,7 @@ void closeDoor()
     if (isDoorClosed())
     {
         stopDoorMotors();
+        doorstate.current = STATE_CLOSED;
     }
     else
     {
