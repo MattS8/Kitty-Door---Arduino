@@ -288,6 +288,7 @@ void readHardwareOverride()
                          : isHwForceOpenEnabled()
                              ? HWO_FORCE_OPEN
                              : HWO_FORCE_CLOSE;
+    autoMode.current = autoMode.current && hwOverride.current == HWO_DISABLED;
 }
 
 void readLightLevel() 
