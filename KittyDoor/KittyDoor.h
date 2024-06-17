@@ -1,3 +1,5 @@
+#define DEBUG_PRINTS
+
 #define HWO_DISABLED 0
 #define HWO_FORCE_OPEN 1
 #define HWO_FORCE_CLOSE 2
@@ -92,3 +94,24 @@ typedef struct KittyDoorValues
   unsigned long autoModeBuffer;
 } KittyDoorValues;
 #pragma endregion
+
+#ifdef DEBUG_PRINTS
+static const String debugLightLevel1 = " (open/close: ";
+static const String debugLightLevel2 = ", ";
+static const String debugLightLevel3 = ")";
+static const String debugNotTriggered = "NOT TRIGGERED";
+static const String debugTriggered = "TRIGGERED";
+static const String debugEnabled = "ENABLED";
+static const String debugDisabled = "DISABLED";
+static const String debugForceClose = "FORCE_CLOSE";
+static const String debugForceOpen = "FORCE_OPEN";
+static const String debugDoorVars = "____DOOR VARIABLES____";
+static const String debugHwOverride = "\n\tHwOverride: ";
+static const String debugAutoMode = "\n\tAutoMode: ";
+static const String debugAutoModeBuffer = "\n\tAutoModeBufferTime: ";
+static const String debugOpenSensor = "\n\tOpenSensor: ";
+static const String debugClosedSensor = "\n\tClosedSensor: ";
+static const String debugDoorStateCur = "\n\tDoorState (Current): ";
+static const String debugDoorStatePrev = "\n\tDoorState (previous): ";
+static const String debugLightLevel = "\n\tLightLevel: ";
+#endif

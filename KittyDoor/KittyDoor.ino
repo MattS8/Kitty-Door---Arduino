@@ -129,15 +129,18 @@ void loop()
         sendAutoMode();
     }
 
-    debugPrint("____DOOR VARIABLES____" 
-        + "\n\tHwOverride: " + (values.hwForceOpen ? "FORCE_OPEN" : values.hwForceClose ? "FORCE_CLOSE" : "DISABLED")
-        + "\n\tAutoMode: " + (autoMode.current ? "ENABLED" : "DISABLED")
-        + "\n\tAutoModeBufferTime: " + values.autoModeBuffer
-        + "\n\tOpenSensor: " + (isDoorOpen() ? "TRIGGERED" : "NOT TRIGGERED")
-        + "\n\tClosedSensor: " + (isDoorClosed() ? "TRIGGERED" : "NOT TRIGGERED")
-        + "\n\tDoorState (Current): " + doorstate.current
-        + "\n\tDoorState (previous): " + doorstate.previous
-        + "\n\tLightLevel: " + values.lightLevel + " (open/close: " + values.openLightLevel + ", " + values.closeLightLevel + ")")
+
+    debugPrint(debugDoorVars
+        + debugHwOverride + (values.hwForceOpen ? debugForceOpen : values.hwForceClose ? debugForceClose : debugDisabled)
+        + debugAutoMode + (autoMode.current ? debugEnabled : debugDisabled)
+        + debugAutoModeBuffer + String(values.autoModeBuffer)
+        + debugOpenSensor + (isDoorOpen() ? debugTriggered : debugNotTriggered)
+        + debugClosedSensor + (isDoorClosed() ? debugTriggered : debugNotTriggered)
+        + debugDoorStateCur + doorstate.current
+        + debugDoorStatePrev + doorstate.previous
+        + debugLightLevel + String(values.lightLevel) + debugLightLevel1 
+        + String(values.openLightLevel) + debugLightLevel2 + String(values.closeLightLevel) + debugLightLevel3
+    );
 }
 
 ///////////////////////////////////
@@ -590,8 +593,6 @@ void printResult(AsyncResult &aResult)
 ///// DEBUG FUNCTIONS
 //////////////////////////////////
 #pragma region DEBUG
-
-#define DEBUG_PRINTS
 
 // Ensure that debug messages aren't spammed to the console
 #ifdef DEBUG_PRINTS
