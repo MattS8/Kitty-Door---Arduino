@@ -363,6 +363,20 @@ void closeDoor()
 //////////////////////////////////
 #pragma region FB SEND FUNCTIONS
 
+void sendAlive()
+{
+    if (app.ready())
+    {
+        JsonWriter writer;
+        object_t json, obj1, obj2;
+        writer.create(obj1, "status", millis());
+        writer.create(obj2, "timestamp", String(millis()));
+        writer.join(json, 2, obj1, obj2);
+
+        Database.set<object_t>(fbClientSend, "/systems/kitty_door/status/online_check", json, cbSendTask, "SEND");
+    }
+}
+
 void sendLightLevel()
 {
     if (app.ready())
@@ -427,10 +441,74 @@ void sendDoorState()
 ///// CALLBACK HANDLERS
 //////////////////////////////////
 #pragma region CALLBACK HANDLERS
-
+int authErrors = 0;
 void cbAuthTask(AsyncResult &aResult)
 {
-    printResult(aResult);
+    if (aResult.isEvent())
+    {
+        Firebase.printf("Event task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.appEvent().message().c_str(), aResult.appEvent().code());
+    }
+
+    if (aResult.isDebug())
+    {
+        Firebase.printf("Debug task: %s, msg: %s\n", aResult.uid().c_str(), aResult.debug().c_str());
+    }
+
+    if (aResult.isError())
+    {
+        int errCode = aResult.error().code();
+        Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), errCode);
+
+        if (errCode == -4) 
+        {
+            authErrors += 1;
+            if (authErrors >= 10)
+            {
+                authErrors = 0;
+                user_auth = UserAuth(API_KEY, USER_EMAIL, USER_PASSWORD);
+                deinitializeApp(app);
+                Database.resetApp();
+
+                debugPrint("Resetting firebase connection...");
+                delay(2000);
+                initializeApp(fbClientSend, app, getAuth(user_auth), cbAuthTask, "AUTH");
+                app.getApp<RealtimeDatabase>(Database);
+                Database.url(DATABASE_URL);
+                Database.setSSEFilters("get,put,patch,keep-alive,cancel,auth_revoked");
+            }
+        }
+    }
+
+    if (aResult.available())
+    {
+        RealtimeDatabaseResult &RTDB = aResult.to<RealtimeDatabaseResult>();
+        if (RTDB.isStream())
+        {
+            Serial.println("----------------------------");
+            Firebase.printf("task: %s\n", aResult.uid().c_str());
+            Firebase.printf("event: %s\n", RTDB.event().c_str());
+            Firebase.printf("path: %s\n", RTDB.dataPath().c_str());
+            Firebase.printf("data: %s\n", RTDB.to<const char *>());
+            Firebase.printf("type: %d\n", RTDB.type());
+
+            // The stream event from RealtimeDatabaseResult can be converted to the values as following.
+            bool v1 = RTDB.to<bool>();
+            int v2 = RTDB.to<int>();
+            float v3 = RTDB.to<float>();
+            double v4 = RTDB.to<double>();
+            String v5 = RTDB.to<String>();
+        }
+        else
+        {
+            Serial.println("----------------------------");
+            Firebase.printf("task: %s, payload: %s\n", aResult.uid().c_str(), aResult.c_str());
+        }
+#if defined(ESP32) || defined(ESP8266)
+        Firebase.printf("Free Heap: %d\n", ESP.getFreeHeap());
+#elif defined(ARDUINO_RASPBERRY_PI_PICO_W)
+        Firebase.printf("Free Heap: %d\n", rp2040.getFreeHeap());
+#endif
+}
 }
 
 void cbSendTask(AsyncResult &aResult)
@@ -530,6 +608,10 @@ void handleCommand()
     else if (command == COMMAND_SET_TO_AUTO)
     {
         autoMode.current = true;
+    }
+    else if (command == COMMAND_CHECK_ALIVE)
+    {
+        sendAlive();
     }
     else if (command != NONE)
     {

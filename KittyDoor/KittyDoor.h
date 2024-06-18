@@ -8,6 +8,7 @@ static const String NONE = "_none_";
 #define COMMAND_CLOSE "CLOSE_DOOR"
 #define COMMAND_READ_LIGHT_LEVEL "READ_LIGHT_LEVEL"
 #define COMMAND_SET_TO_AUTO "SET_TO_AUTO"
+#define COMMAND_CHECK_ALIVE "CHECK_ALIVE"
 
 static const String STATE_OPEN = "OPEN";
 static const String STATE_CLOSED = "CLOSED";
