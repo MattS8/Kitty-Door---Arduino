@@ -14,6 +14,10 @@ static const String STATE_OPEN = "OPEN";
 static const String STATE_CLOSED = "CLOSED";
 static const String STATE_OPENING = "OPENING";
 static const String STATE_CLOSING = "CLOSING";
+#define STATE_OPEN_INT 1
+#define STATE_CLOSED_INT 2
+#define STATE_OPENING_INT 3
+#define STATE_CLOSING_INT 4
 #define BUFFER_TIME 1000
 
 ///////////////////////////////////
@@ -33,10 +37,12 @@ const int PIN_CLOSE_MOTOR = 4;
 ///// FORWARD DECLARATIONS
 //////////////////////////////////
 #pragma region FORWARD DECLARATIONS
+
 // Setup Functions
 void setPinModes();
 void setupFirebase();
-void setDefaultDoorOptions();
+void writeDataToFlashMemory();
+bool readFromFlashMemory();
 void initializeDoor();
 
 // Send Functions

@@ -20,6 +20,8 @@
 #include "Credentials.h"
 #include "KittyDoor.h"
 
+#include <EEPROM.h>
+
 void cbSendTask(AsyncResult &aResult);
 
 void cbStreamTask(AsyncResult &aResult);
@@ -52,14 +54,17 @@ DoorState doorstate;
 AutoModeState autoMode;
 HwOverrideState hwOverride;
 String command = NONE;
-String desiredState = STATE_OPEN;
+int desiredState = STATE_OPEN_INT;
 bool newDataReceived = false;
 
 void setup()
 {
     Serial.begin(115200);
     setPinModes();
-    initializeDoor();
+    if (!readFromFlashMemory())
+    {
+        initializeDoor();
+    }
     setupFirebase();
 }
 
@@ -80,11 +85,11 @@ void loop()
     // Check for action if in "hw override mode"
     if (isHwForceCloseEnabled())
     {
-        desiredState = STATE_CLOSED;
+        desiredState = STATE_CLOSED_INT;
     }
     else if (isHwForceOpenEnabled())
     {
-        desiredState = STATE_OPEN;
+        desiredState = STATE_OPEN_INT;
     }
     // Check for action if in "auto mode"
     else if (autoMode.current)
@@ -102,7 +107,7 @@ void loop()
         handleCommand();
 
     // Operate on door based on the set desired state
-    if (desiredState == STATE_CLOSED)
+    if (desiredState == STATE_CLOSED_INT)
     {
         closeDoor();
     }
@@ -143,6 +148,76 @@ void loop()
     );
 #endif
 }
+
+///////////////////////////////////
+///// FLASH MEM FUNCTIONS
+//////////////////////////////////
+
+#pragma region FLASH MEM FUNCTIONS
+void writeDataToFlashMemory()
+{
+    // 0 = desiredStaste, 1 = prevDoorState, 2 = prevHwOverrideState, 3 = prevAutoModeState
+    int flashValues[4] = { desiredState, doorStateToInt(doorstate.previous), hwOverride.previous, autoMode.previous ? 1 : 0 };
+    writeNumbersToEEPROM(flashValues, 4);
+}
+
+int doorStateToInt(String doorStateStr)
+{
+    return doorStateStr == STATE_OPEN ? STATE_OPEN_INT
+        : doorStateStr == STATE_OPENING ? STATE_OPENING_INT
+        : doorStateStr == STATE_CLOSING ? STATE_CLOSING_INT
+        : STATE_CLOSED_INT;
+}
+
+String doorStateFromInt(int doorStateInt)
+{
+    return doorStateInt == STATE_OPEN_INT ? STATE_OPEN
+        : doorStateInt == STATE_OPENING_INT ? STATE_OPENING
+        : doorStateInt == STATE_CLOSED_INT ? STATE_CLOSED
+        : STATE_CLOSING; 
+}
+
+void writeNumbersToEEPROM(int* numbers, int count)
+{
+  for (int i = 0; i < count; i++)
+  {
+    EEPROM.put(i * sizeof(int), numbers[i]); // Write each integer to a different EEPROM address
+  }
+  EEPROM.commit(); // Commit changes to EEPROM
+}
+
+void readNumbersFromEEPROM(int* numbers, int count)
+{
+  for (int i = 0; i < count; i++)
+  {
+    EEPROM.get(i * sizeof(int), numbers[i]); // Read each integer from its EEPROM address
+  }
+}
+
+void readFromFlashMemory()
+{
+    EEPROM.begin(128);
+    int readInt;
+    EEPROM.get(0, readInt);
+
+    // Should be 0 if never written OR if manually set to 0
+    if (readInt == 0)
+    {
+        return false;
+    }
+
+    // No longer booted up from a clean state
+    EEPROM.set(0, 0);
+
+    // 0 = desiredStaste, 1 = prevDoorState, 2 = prevHwOverrideState, 3 = prevAutoModeState
+    int flashValues[4];
+    readNumbersFromEEPROM(flashValues, 4);
+    desiredState = flashValues[0];
+    doorstate.previous = doorStateFromInt(flashValues[1]);
+    hwOverride.previous = flashValues[2];
+    autoMode.previous = flashValues[3] == 1;
+}
+#pragma endregion
 
 ///////////////////////////////////
 ///// SETUP FUNCTIONS
@@ -301,10 +376,10 @@ void readDoorSensors()
 {
     values.upSense = digitalRead(PIN_UP_SENSE);
     values.downSense = digitalRead(PIN_DOWN_SENSE);
-    doorstate.current = isDoorOpen() ? STATE_OPEN
-        : isDoorClosed() ? STATE_CLOSED
-            : desiredState == STATE_OPEN ? STATE_OPENING
-            : STATE_CLOSING;
+    doorstate.current = isDoorOpen() ? STATE_OPEN_INT
+        : isDoorClosed() ? STATE_CLOSED_INT
+            : desiredState == STATE_OPEN_INT ? STATE_OPENING_INT
+            : STATE_CLOSING_INT;
 }
 
 bool isHwForceCloseEnabled() { return values.hwForceClose == LOW; }
@@ -330,7 +405,7 @@ void stopDoorMotors()
 
 void openDoor()
 {
-    desiredState = STATE_OPEN;
+    desiredState = STATE_OPEN_INT;
     if (isDoorOpen())
     {
         stopDoorMotors();
@@ -344,7 +419,7 @@ void openDoor()
 
 void closeDoor()
 {
-    desiredState = STATE_CLOSED;
+    desiredState = STATE_CLOSED_INT;
     if (isDoorClosed())
     {
         stopDoorMotors();
@@ -453,6 +528,8 @@ void checkAuthErrors(int errCode)
             resetAttempts += 1;
             if (resetAttempts >= 2)
             {
+                writeDataToFlashMemory();
+                delay(250);
                 ESP.reset();
                 return;
             }
@@ -577,7 +654,7 @@ void handleAutoMode()
         else if (millis() >= values.autoModeBuffer)
         {
             values.autoModeBuffer = 0;
-            desiredState = STATE_OPEN;
+            desiredState = STATE_OPEN_INT;
         }
     }
     else if (values.lightLevel <= values.closeLightLevel)
@@ -589,7 +666,7 @@ void handleAutoMode()
         else if (millis() >= values.autoModeBuffer)
         {
             values.autoModeBuffer = 0;
-            desiredState = STATE_CLOSED;
+            desiredState = STATE_CLOSED_INT;
         }
     }
 }
@@ -600,7 +677,7 @@ void handleCommand()
     {
         if (!isHwForceCloseEnabled() && !isHwForceOpenEnabled())
         {
-            desiredState = STATE_OPEN;
+            desiredState = STATE_OPEN_INT;
             autoMode.current = false;
         }
     }
@@ -608,7 +685,7 @@ void handleCommand()
     {
         if (!isHwForceCloseEnabled() && !isHwForceOpenEnabled())
         {
-            desiredState = STATE_CLOSED;
+            desiredState = STATE_CLOSED_INT;
             autoMode.current = false;
         }
     }
