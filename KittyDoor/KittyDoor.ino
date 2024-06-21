@@ -441,8 +441,36 @@ void sendDoorState()
 ///// CALLBACK HANDLERS
 //////////////////////////////////
 #pragma region CALLBACK HANDLERS
-int authErrors = 0;
-int resetAttempts = 0;
+void checkAuthErrors(int errCode)
+{
+    static int authErrors = 0;
+    static int resetAttempts = 0;
+    if (errCode == -4 || errCode == -1) 
+    {
+        authErrors += 1;
+        if (authErrors >= 4)
+        {
+            resetAttempts += 1;
+            if (resetAttempts >= 2)
+            {
+                ESP.reset();
+                return;
+            }
+            authErrors = 0;
+            user_auth = UserAuth(API_KEY, USER_EMAIL, USER_PASSWORD);
+            deinitializeApp(app);
+            Database.resetApp();
+
+            debugPrint("Resetting firebase connection...");
+            delay(100);
+            initializeApp(fbClientSend, app, getAuth(user_auth), cbAuthTask, "AUTH");
+            app.getApp<RealtimeDatabase>(Database);
+            Database.url(DATABASE_URL);
+            Database.setSSEFilters("get,put,patch,keep-alive,cancel,auth_revoked");
+        }
+    }
+}
+
 void cbAuthTask(AsyncResult &aResult)
 {
     if (aResult.isEvent())
@@ -459,31 +487,7 @@ void cbAuthTask(AsyncResult &aResult)
     {
         int errCode = aResult.error().code();
         Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), errCode);
-
-        if (errCode == -4 || errCode == -1) 
-        {
-            authErrors += 1;
-            if (authErrors >= 4)
-            {
-                resetAttempts += 1;
-                if (resetAttempts >= 2)
-                {
-                    ESP.reset();
-                    return;
-                }
-                authErrors = 0;
-                user_auth = UserAuth(API_KEY, USER_EMAIL, USER_PASSWORD);
-                deinitializeApp(app);
-                Database.resetApp();
-
-                debugPrint("Resetting firebase connection...");
-                delay(100);
-                initializeApp(fbClientSend, app, getAuth(user_auth), cbAuthTask, "AUTH");
-                app.getApp<RealtimeDatabase>(Database);
-                Database.url(DATABASE_URL);
-                Database.setSSEFilters("get,put,patch,keep-alive,cancel,auth_revoked");
-            }
-        }
+        checkAuthErrors(errCode);
     }
 
     if (aResult.available())
@@ -642,7 +646,9 @@ void printResult(AsyncResult &aResult)
 
     if (aResult.isError())
     {
-        Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), aResult.error().code());
+        int errCode = aResult.error().code();
+        Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), errCode);
+        checkAuthErrors(errCode);
     }
 
     if (aResult.available())
