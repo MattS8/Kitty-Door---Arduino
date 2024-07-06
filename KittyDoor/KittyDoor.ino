@@ -208,6 +208,7 @@ void readFromFlashMemory()
 
     // No longer booted up from a clean state
     EEPROM.set(0, 0);
+    EEPROM.commit();
 
     // 0 = desiredStaste, 1 = prevDoorState, 2 = prevHwOverrideState, 3 = prevAutoModeState
     int flashValues[4];
