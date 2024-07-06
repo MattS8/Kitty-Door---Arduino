@@ -194,29 +194,31 @@ void readNumbersFromEEPROM(int* numbers, int count)
   }
 }
 
-void readFromFlashMemory()
+bool readFromFlashMemory()
 {
     EEPROM.begin(128);
-    int readInt;
-    EEPROM.get(0, readInt);
 
-    // Should be 0 if never written OR if manually set to 0
-    if (readInt == 0)
-    {
+    // Check if the EEPROM contains valid data from another run
+    if(EEPROM.percentUsed()>=0) {
+        // 0 = desiredStaste, 1 = prevDoorState, 2 = prevHwOverrideState, 3 = prevAutoModeState
+        int flashValues[4];
+        readNumbersFromEEPROM(flashValues, 4);
+        desiredState = flashValues[0];
+        doorstate.previous = doorStateFromInt(flashValues[1]);
+        hwOverride.previous = flashValues[2];
+        autoMode.previous = flashValues[3] == 1;
+
+        Serial.println("EEPROM has data from a previous run.");
+        Serial.print(EEPROM.percentUsed());
+        Serial.println("% of ESP flash space currently used");
+
+        return true;
+    } else {
+        Serial.println("EEPROM size changed - EEPROM data zeroed");
+        EEPROM.commit();
+
         return false;
     }
-
-    // No longer booted up from a clean state
-    EEPROM.set(0, 0);
-    EEPROM.commit();
-
-    // 0 = desiredStaste, 1 = prevDoorState, 2 = prevHwOverrideState, 3 = prevAutoModeState
-    int flashValues[4];
-    readNumbersFromEEPROM(flashValues, 4);
-    desiredState = flashValues[0];
-    doorstate.previous = doorStateFromInt(flashValues[1]);
-    hwOverride.previous = flashValues[2];
-    autoMode.previous = flashValues[3] == 1;
 }
 #pragma endregion
 
